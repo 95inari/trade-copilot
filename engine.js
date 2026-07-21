@@ -5,8 +5,8 @@
  * J-Quantsクライアントをすべてブラウザ内で実行し、localStorageに保存する。
  *
  * データソース:
- *  - J-Quants: CORS開放されているためブラウザからV2 APIへ直接接続。
- *  - Yahoo Finance: CORS非対応のため、任意設定のCloudflare Workerプロキシ経由。
+ *  - J-Quants / Yahoo Finance: ブラウザ制約を回避するため、自分専用の
+ *    Cloudflare Workerプロキシ経由。
  *    未設定時や取得失敗時は、誤認防止のため銘柄・価格データを表示しない。
  */
 (() => {
@@ -183,12 +183,19 @@ function saveWatchlist(codes) {
 // データ設定（プロキシ / 未接続）
 // ---------------------------------------------------------------------------
 
+const DEFAULT_PROXY_URL = "https://trade-copilot-data-proxy.95inari.workers.dev";
+
 function readProxyUrl() {
-  return (store.read("proxy_url", "") || "").trim();
+  const saved = store.read("proxy_url", null);
+  return String(saved === null ? DEFAULT_PROXY_URL : saved || "").trim();
 }
 
 function useRealData() {
   return readProxyUrl() !== "";
+}
+
+function proxyUrlFor(target) {
+  return `${readProxyUrl().replace(/\/$/, "")}/?url=${encodeURIComponent(target)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,9 +217,8 @@ function sleep(ms) {
 }
 
 async function fetchChartViaProxy(code) {
-  const proxy = readProxyUrl();
   const target = `https://query1.finance.yahoo.com/v8/finance/chart/${code}.T?range=6d&interval=5m`;
-  const url = `${proxy.replace(/\/$/, "")}/?url=${encodeURIComponent(target)}`;
+  const url = proxyUrlFor(target);
   let response;
   const fetchOnce = async () => {
     try {
@@ -506,6 +512,10 @@ const jq = {
     if (!JQ_ALLOWED.has(path)) {
       throw new Error(`J-Quants: ${path} はアプリの許可リストにありません`);
     }
+    if (!readProxyUrl()) {
+      this.lastError = "データ中継プロキシが未設定です。先に下の「データ設定」でURLを保存してください";
+      return null;
+    }
     if (!this.consumeBudget()) return null;
 
     // 直列化: 並行リクエストでも無料プランの上限（5件/分）を超えない
@@ -514,21 +524,29 @@ const jq = {
       if (wait > 0) await sleep(wait);
       this.lastRequestAt = Date.now();
 
-      let url = `${JQ_BASE}${path}`;
-      if (params) url += `?${new URLSearchParams(params)}`;
+      let upstreamUrl = `${JQ_BASE}${path}`;
+      if (params) upstreamUrl += `?${new URLSearchParams(params)}`;
+      const url = proxyUrlFor(upstreamUrl);
       try {
         const response = await fetch(url, {
           method: "GET",
-          headers: { "x-api-key": apiKey || store.read("jq_api_key", "") },
+          headers: { "X-J-Quants-API-Key": apiKey || store.read("jq_api_key", "") },
         });
         if (!response.ok) {
-          this.lastError = `${path}: HTTP ${response.status}`;
+          let detail = "";
+          try {
+            const body = await response.json();
+            detail = String(body?.error || body?.message || "");
+          } catch {
+            // エラー本文がJSONでない場合はHTTPステータスだけ表示する
+          }
+          this.lastError = `${path}: HTTP ${response.status}${detail ? `（${detail}）` : ""}`;
           return null;
         }
         this.lastError = null;
         return await response.json();
       } catch {
-        this.lastError = `${path}: 接続エラー`;
+        this.lastError = `${path}: データ中継プロキシへの接続エラー`;
         return null;
       }
     };
@@ -636,7 +654,11 @@ const jq = {
     const payload = await this.request("/equities/master", { params: { code: "86970" }, apiKey: key });
     if (!payload?.data?.length) {
       const error = this.lastError || "";
-      if (/HTTP 4/.test(error)) {
+      if (error.includes("未設定")) return { ok: false, message: error };
+      if (/Yahoo chart API|HTTP 400/.test(error)) {
+        return { ok: false, message: "データ中継プロキシが旧バージョンです。最新のcloudflare-worker.jsへ更新してください" };
+      }
+      if (/HTTP 401|HTTP 403/.test(error)) {
         return { ok: false, message: "APIキーを確認できませんでした。J-Quantsダッシュボードで発行したV2 APIキーを確認してください" };
       }
       if (error.includes("予算")) return { ok: false, message: error };

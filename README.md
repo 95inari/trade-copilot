@@ -17,11 +17,11 @@
 - 記録はすべて**この端末のブラウザ内**に保存されます（サーバーには何も送信されません）
 - **バックアップ推奨**: iOSのSafariは7日間未使用でデータを削除することがあります。「データ設定」からエクスポートできます
 - **初期状態では価格非表示**: 実データ未接続時や取得失敗時は、誤認を防ぐため銘柄・価格・スコアを表示しません
-- **リアルタイム価格（任意）**: ブラウザの制約（CORS）のため、Yahoo Financeの実データには自分専用の中継プロキシが必要です。`proxy/cloudflare-worker.js` をCloudflare Workers（無料）にデプロイし、URLをアプリの「データ設定」に貼り付けてください
+- **データ中継プロキシ**: ブラウザの制約（CORS）のため、J-Quants V2とYahoo Financeの実データには自分専用の中継プロキシが必要です。`proxy/cloudflare-worker.js` をCloudflare Workers（無料）にデプロイし、URLをアプリの「データ設定」に貼り付けてください
   1. https://dash.cloudflare.com/ で無料アカウント作成
   2. Workers & Pages → Create Worker → `proxy/cloudflare-worker.js` の内容を貼り付けて Deploy
   3. 表示されたURL（`https://xxx.workers.dev`）をアプリの「データ設定」に入力
-- **J-QuantsのV2 APIキーは端末内だけに保存**され、J-Quants公式API以外には送信されません
+- **J-QuantsのV2 APIキーは端末内だけに保存**され、接続時は自分専用の中継を経由してJ-Quants公式APIへ送信されます。中継には保存しません
 
 ## 開発
 

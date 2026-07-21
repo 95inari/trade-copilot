@@ -362,7 +362,8 @@
               日本取引所グループ公式のデータAPIです。SNSログイン後に発行する
               <strong>V2 APIキー</strong>で連携すると、
               <strong>銘柄の正式名称・業種・休場日の自動判定・参考統計</strong>が使えるようになります。
-              無料プランでも利用でき、公式の上限に合わせて通信間隔を自動調整します。
+              無料プランでも利用できます。ブラウザの制約があるため、先に下の
+              <strong>データ中継プロキシURL</strong>を設定してください。
             </p>
             <ol class="jq-steps">
               <li>
@@ -381,7 +382,8 @@
               <button class="primary-button" type="submit">接続して保存</button>
             </form>
             <p class="muted small-note jq-note">
-              APIキーはこの端末のブラウザ内だけに保存され、J-Quants公式API以外には送信されません。
+              APIキーはこの端末のブラウザ内だけに保存され、接続時は自分専用の中継を経由してJ-Quants公式APIへ送信されます。
+              中継には保存しません。
               共有端末では使用しないでください。
             </p>
           </div>
@@ -402,16 +404,16 @@
           <p id="dataModeNote" class="muted small-note jq-note"></p>
           <form id="dataConfigForm" class="form-stack">
             <label>
-              YahooプロキシURL（任意・リアルタイム化用）
+              データ中継プロキシURL（J-Quants・価格データ共通）
               <input id="proxyUrl" type="url" placeholder="https://xxx.workers.dev" autocomplete="off" />
             </label>
             <button class="primary-button" type="submit">保存</button>
           </form>
           <p class="muted small-note jq-note">
-            GitHub Pages版はブラウザの制約（CORS）でYahoo Financeへ直接アクセスできないため、
-            リアルタイム価格には自分専用の中継プロキシ（Cloudflare Worker・無料）が必要です。
+            GitHub Pages版はブラウザの制約（CORS）でJ-QuantsとYahoo Financeへ直接アクセスできないため、
+            自分専用の中継プロキシ（Cloudflare Worker・無料）が必要です。
             リポジトリの proxy/cloudflare-worker.js を約5分でデプロイし、URLをここに貼り付けてください。
-            未設定時や取得失敗時は、誤認防止のため銘柄・価格・スコアを表示しません。J-Quants連携は単独でも利用できます。
+            未設定時や取得失敗時は、誤認防止のため銘柄・価格・スコアを表示しません。
           </p>
           <div class="button-row">
             <button id="exportDataButton" class="secondary-button" type="button">バックアップ保存</button>

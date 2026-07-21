@@ -282,7 +282,7 @@ function renderJquantsPanel(status) {
       `<p>V2 APIキー: <strong>${escapeHtml(status.key_label || "設定済み")}</strong></p>`,
       `<p>本日のアプリ内リクエスト: <strong>${escapeHtml(status.used)} / ${escapeHtml(status.budget)}</strong>（上限で自動停止）</p>`,
       `<p>銘柄マスタ: ${status.master_cached ? "取得済み" : "未取得"} / 営業日カレンダー: ${status.calendar_cached ? "取得済み" : "未取得"}</p>`,
-      "<p>APIキーはこの端末のブラウザ内にのみ保存されています。</p>",
+      "<p>APIキーはこの端末内だけに保存され、自分専用の中継には保存されません。</p>",
       status.last_error ? `<p><strong>直近のエラー:</strong> ${escapeHtml(status.last_error)}</p>` : "",
     ];
     document.getElementById("jquantsInfo").innerHTML = lines.join("");
@@ -1193,8 +1193,8 @@ async function loadDataConfig() {
   document.getElementById("proxyUrl").value = config.proxy_url || "";
   const note = document.getElementById("dataModeNote");
   note.textContent = config.mode === "yahoo"
-    ? "リアルタイムモード: プロキシ経由でYahoo Financeの実データを取得します。"
-    : "価格データ未接続: ダミーデータは表示しません。表示するにはプロキシURLを設定してください。";
+    ? "データ中継接続済み: J-QuantsとYahoo Financeを安全に中継します。"
+    : "データ中継未接続: J-Quantsと価格データを使うにはプロキシURLを設定してください。";
 }
 
 async function saveDataConfig(event) {
@@ -1203,7 +1203,7 @@ async function saveDataConfig(event) {
     method: "POST",
     body: JSON.stringify({ proxy_url: document.getElementById("proxyUrl").value }),
   });
-  showToast(result.mode === "yahoo" ? "実データ接続を保存しました" : "価格データの接続を解除しました", "success");
+  showToast(result.mode === "yahoo" ? "データ中継URLを保存しました" : "データ中継を解除しました", "success");
   await loadDataConfig();
   await loadCandidates();
 }
