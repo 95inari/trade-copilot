@@ -1178,8 +1178,6 @@ textarea {
 
 @media (min-width: 1200px) {
   .watchlist-panel {
-    position: sticky;
-    top: 16px;
     max-height: calc(100vh - 32px);
   }
 
@@ -1223,7 +1221,11 @@ textarea {
   }
 
   .watchlist-panel {
-    max-height: 560px;
+    max-height: none;
+  }
+
+  .watchlist-panel .table-wrap {
+    max-height: 420px;
   }
 
   .side-panel {
