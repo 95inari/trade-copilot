@@ -181,8 +181,8 @@ async function loadSettings() {
 
 const DATA_SOURCE_LABELS = {
   yahoo: "Yahoo Finance（プロキシ経由）",
-  mock: "デモ（価格シミュレーション）",
-  mock_fallback: "デモ表示（実データ取得失敗）",
+  unconfigured: "未接続",
+  unavailable: "実データ取得失敗",
 };
 
 function renderMarketPhase(data) {
@@ -292,12 +292,37 @@ function renderDataSource(data) {
       (failures ? ` / 取得失敗 ${failures}銘柄` : "") +
       ` / ${jquantsNote(data.jquants)}`;
     note.title = (data.data_errors || []).join("\n");
-  } else if (data.data_source === "mock_fallback") {
-    note.textContent = "実データの取得に失敗したため、デモ表示に切り替えています。プロキシ設定と接続を確認してください。";
+  } else if (data.data_source === "unavailable") {
+    note.textContent = "実データを取得できませんでした。ダミー表示には切り替えていません。データ設定と接続を確認してください。";
     note.title = (data.data_errors || []).join("\n");
   } else {
-    note.textContent = data.data_source === "mock" ? "デモモードで動作中。実データ化は「データ設定」からプロキシURLを設定してください。" : "";
+    note.textContent = "価格データは未接続です。ダミーの銘柄・価格・スコアは表示していません。「設定」から実データを接続してください。";
     note.title = "";
+  }
+
+  const hasRealData = data.data_source === "yahoo";
+  const hasCandidates = hasRealData && (data.stocks || []).length > 0;
+  document.querySelector(".watchlist-panel").classList.toggle("is-data-empty", !hasRealData);
+  document.querySelector(".analysis-panel").classList.toggle("is-data-empty", !hasCandidates);
+  if (!hasCandidates) {
+    const unavailable = data.data_source === "unavailable";
+    document.getElementById("stockTitle").textContent = hasRealData
+      ? "条件に一致する候補がありません"
+      : unavailable
+        ? "実データを取得できません"
+        : "価格データは未接続です";
+    document.getElementById("stockMeta").textContent = hasRealData
+      ? "監視銘柄または証券会社フィルターを見直してください。"
+      : "ダミーデータは表示しません。「設定」からYahooプロキシURLを登録してください。";
+    document.getElementById("rankLabel").textContent = "-";
+    document.getElementById("rankLabel").className = "rank-badge";
+    document.getElementById("totalScore").textContent = "-";
+    document.getElementById("checklist").innerHTML = "";
+    document.getElementById("scoreBreakdown").innerHTML = "";
+    document.getElementById("assistComment").textContent = "";
+    document.getElementById("entryPrice").value = "";
+    document.getElementById("stopPrice").value = "";
+    document.getElementById("journalEntry").value = "";
   }
 }
 
@@ -445,7 +470,6 @@ function renderSelectedStock(stock) {
       ? `平均日中値幅 ${stock.reference.avg_range_pct}%（J-Quants 12週遅延）`
       : null,
     stock.is_previous_session ? `前営業日(${stock.session_date})のデータ` : null,
-    stock.data_source === "mock_fallback" ? "モック表示中" : null,
   ].filter(Boolean);
   document.getElementById("stockMeta").textContent = metaParts.join(" / ");
   const rankLabel = document.getElementById("rankLabel");
@@ -1110,7 +1134,7 @@ async function loadDataConfig() {
   const note = document.getElementById("dataModeNote");
   note.textContent = config.mode === "yahoo"
     ? "リアルタイムモード: プロキシ経由でYahoo Financeの実データを取得します。"
-    : "デモモード: 価格シミュレーションで全機能を試せます。実データ化するにはプロキシURLを設定してください（下記手順）。";
+    : "価格データ未接続: ダミーデータは表示しません。表示するにはプロキシURLを設定してください。";
 }
 
 async function saveDataConfig(event) {
@@ -1119,7 +1143,7 @@ async function saveDataConfig(event) {
     method: "POST",
     body: JSON.stringify({ proxy_url: document.getElementById("proxyUrl").value }),
   });
-  showToast(result.mode === "yahoo" ? "リアルタイムモードに切り替えました" : "デモモードに切り替えました", "success");
+  showToast(result.mode === "yahoo" ? "実データ接続を保存しました" : "価格データの接続を解除しました", "success");
   await loadDataConfig();
   await loadCandidates();
 }

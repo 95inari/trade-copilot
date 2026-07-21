@@ -7,7 +7,7 @@
  * データソース:
  *  - J-Quants: CORS開放されているためブラウザから直接（無料プラン限定ガード付き）
  *  - Yahoo Finance: CORS非対応のため、任意設定のCloudflare Workerプロキシ経由。
- *    未設定時はデモモード（価格ランダムウォーク）で全機能が動作する。
+ *    未設定時や取得失敗時は、誤認防止のため銘柄・価格データを表示しない。
  */
 (() => {
 "use strict";
@@ -151,13 +151,6 @@ const NAME_HINTS = {
   "6920": "レーザーテック", "8035": "東京エレクトロン", "7974": "任天堂", "9432": "NTT",
 };
 
-const MOCK_STOCKS = [
-  { symbol: "3914", name: "JIG-SAW", market: "東証グロース", sector: "情報・通信", price: 5380, change_rate: 12.8, volume: 842000, volume_change_rate: 420, supported_brokers: ["sbi_s_stock", "rakuten_kabumini"], bbs_rank: 9, ranking_hits: ["値上がり率", "出来高増加率", "掲示板投稿数"], news_count: 3, vwap: 5220, above_vwap: true, breakout: true, pullback: false, upper_wick_count: 2, volume_fading: false, thin_order_book: false, event_risk: false, chart_pattern: "高値ブレイク型", candles: [[5050, 5140, 4980, 5110, 82000], [5110, 5260, 5090, 5240, 108000], [5240, 5410, 5200, 5360, 164000], [5360, 5480, 5300, 5380, 139000]] },
-  { symbol: "6526", name: "ソシオネクスト", market: "東証プライム", sector: "電気機器", price: 3125, change_rate: 7.4, volume: 5610000, volume_change_rate: 285, supported_brokers: ["sbi_s_stock", "paypay_amount", "rakuten_kabumini", "rakuten_amount"], bbs_rank: 22, ranking_hits: ["値上がり率", "出来高", "出来高増加率"], news_count: 1, vwap: 3090, above_vwap: true, breakout: false, pullback: true, upper_wick_count: 0, volume_fading: false, thin_order_book: false, event_risk: false, chart_pattern: "VWAP押し目待ち型", candles: [[2995, 3070, 2980, 3055, 620000], [3055, 3160, 3040, 3140, 860000], [3140, 3150, 3075, 3095, 740000], [3095, 3140, 3080, 3125, 680000]] },
-  { symbol: "2160", name: "ジーエヌアイグループ", market: "東証グロース", sector: "医薬品", price: 2496, change_rate: 15.6, volume: 2280000, volume_change_rate: 360, supported_brokers: ["sbi_s_stock", "rakuten_kabumini"], bbs_rank: 4, ranking_hits: ["値上がり率", "掲示板投稿数"], news_count: 0, vwap: 2420, above_vwap: true, breakout: false, pullback: false, upper_wick_count: 4, volume_fading: true, thin_order_book: true, event_risk: false, chart_pattern: "急騰後の過熱型", candles: [[2180, 2320, 2170, 2300, 420000], [2300, 2510, 2290, 2460, 690000], [2460, 2620, 2410, 2505, 590000], [2505, 2580, 2460, 2496, 410000]] },
-  { symbol: "5253", name: "カバー", market: "東証グロース", sector: "情報・通信", price: 1782, change_rate: 4.2, volume: 1320000, volume_change_rate: 175, supported_brokers: ["sbi_s_stock", "rakuten_kabumini", "rakuten_amount"], bbs_rank: 31, ranking_hits: ["出来高増加率", "掲示板投稿数"], news_count: 2, vwap: 1804, above_vwap: false, breakout: false, pullback: false, upper_wick_count: 1, volume_fading: true, thin_order_book: false, event_risk: true, chart_pattern: "VWAP割れ警戒型", candles: [[1770, 1825, 1762, 1810, 210000], [1810, 1840, 1795, 1828, 250000], [1828, 1835, 1775, 1792, 230000], [1792, 1805, 1768, 1782, 190000]] },
-];
-
 const FORBIDDEN_EXPRESSIONS = [
   "買いです", "売りです", "買うべき", "売るべき", "買ってください", "売ってください",
   "必ず儲かる", "必ず上がる", "必ず下がる", "絶対に儲かる", "勝率保証", "元本保証",
@@ -187,7 +180,7 @@ function saveWatchlist(codes) {
 }
 
 // ---------------------------------------------------------------------------
-// データ設定（プロキシ / デモ）
+// データ設定（プロキシ / 未接続）
 // ---------------------------------------------------------------------------
 
 function readProxyUrl() {
@@ -196,59 +189,6 @@ function readProxyUrl() {
 
 function useRealData() {
   return readProxyUrl() !== "";
-}
-
-// ---------------------------------------------------------------------------
-// モック価格シミュレーション（デモモード）
-// ---------------------------------------------------------------------------
-
-const PRICE_STATE = {};
-const PRICE_DRIFT_TO_VWAP = 0.06;
-const PRICE_VOLATILITY = 0.004;
-const PRICE_MAX_DEVIATION = 0.12;
-
-function gaussRandom() {
-  let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-
-function simulateTick() {
-  for (const stock of MOCK_STOCKS) {
-    const base = stock.price;
-    const current = PRICE_STATE[stock.symbol] ?? base;
-    const drift = ((stock.vwap - current) / current) * PRICE_DRIFT_TO_VWAP;
-    const moved = current * (1 + drift + gaussRandom() * PRICE_VOLATILITY);
-    const lower = base * (1 - PRICE_MAX_DEVIATION);
-    const upper = base * (1 + PRICE_MAX_DEVIATION);
-    PRICE_STATE[stock.symbol] = roundTo(Math.min(upper, Math.max(lower, moved)), 1);
-  }
-}
-
-function mockCurrentPrice(symbol) {
-  if (symbol in PRICE_STATE) return PRICE_STATE[symbol];
-  const stock = MOCK_STOCKS.find((s) => s.symbol === symbol);
-  return stock ? stock.price : null;
-}
-
-function liveStock(stock) {
-  const price = mockCurrentPrice(stock.symbol) ?? stock.price;
-  const prevClose = stock.price / (1 + stock.change_rate / 100);
-  const candles = stock.candles.map((c) => [...c]);
-  if (candles.length) {
-    const last = candles[candles.length - 1];
-    last[3] = price;
-    last[1] = Math.max(last[1], price);
-    last[2] = Math.min(last[2], price);
-  }
-  return {
-    ...stock,
-    price,
-    change_rate: prevClose > 0 ? roundTo((price / prevClose - 1) * 100, 1) : stock.change_rate,
-    above_vwap: price > stock.vwap,
-    candles,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -796,13 +736,9 @@ async function getMarketStocks() {
         },
       };
     }
-    simulateTick();
-    return { stocks: MOCK_STOCKS.map(liveStock), meta: { data_source: "mock_fallback", data_errors: errors, fetched_at: null } };
+    return { stocks: [], meta: { data_source: "unavailable", data_errors: errors, fetched_at: null } };
   }
-  simulateTick();
-  const stocks = MOCK_STOCKS.map(liveStock);
-  await enrichWithJquants(stocks);
-  return { stocks, meta: { data_source: "mock", data_errors: [], fetched_at: null } };
+  return { stocks: [], meta: { data_source: "unconfigured", data_errors: [], fetched_at: null } };
 }
 
 async function currentStockPrice(symbol) {
@@ -811,7 +747,7 @@ async function currentStockPrice(symbol) {
     const stock = stocks.find((s) => s.symbol === symbol);
     return stock ? stock.price : null;
   }
-  return mockCurrentPrice(symbol);
+  return null;
 }
 
 async function isTradingDayToday() {
@@ -1148,8 +1084,6 @@ async function runPaperAutoTrading(req) {
     order_amount_per_trade: p.order_amount_per_trade, enforce_time_window: p.enforce_time_window,
   };
   store.write("settings", settings);
-  if (!useRealData()) simulateTick();
-
   const trades = readPaperTrades();
   const closed = await settlePaperTrades(trades, { forceClose: p.enforce_time_window && nowHhmm() >= p.force_exit_time });
   if (closed.length) writePaperTrades(trades);
@@ -1403,14 +1337,14 @@ async function localApi(path, options = {}) {
 
   // --- データ設定（PWA固有）---
   if (rawPath === "/api/data-config" && method === "GET") {
-    return { proxy_url: readProxyUrl(), mode: useRealData() ? "yahoo" : "mock" };
+    return { proxy_url: readProxyUrl(), mode: useRealData() ? "yahoo" : "unconfigured" };
   }
   if (rawPath === "/api/data-config" && method === "POST") {
     const url = String(body.proxy_url || "").trim();
     if (url && !/^https:\/\/.+/.test(url)) throw { status: 400, detail: "プロキシURLは https:// で始まる必要があります" };
     store.write("proxy_url", url);
     clearYahooCache();
-    return { proxy_url: url, mode: url ? "yahoo" : "mock" };
+    return { proxy_url: url, mode: url ? "yahoo" : "unconfigured" };
   }
 
   // --- J-Quants ---
@@ -1433,7 +1367,7 @@ async function localApi(path, options = {}) {
 
   // --- 監視リスト ---
   if (rawPath === "/api/watchlist" && method === "GET") {
-    return { symbols: readWatchlist(), data_source: useRealData() ? "yahoo" : "mock" };
+    return { symbols: readWatchlist(), data_source: useRealData() ? "yahoo" : "unconfigured" };
   }
   if (rawPath === "/api/watchlist" && method === "POST") {
     if (!WATCH_SYMBOL_RE.test(body.symbol || "")) throw { status: 422, detail: "銘柄コードの形式が不正です" };
@@ -1572,7 +1506,6 @@ async function localApi(path, options = {}) {
 
   // --- ペーパートレード ---
   if (rawPath === "/api/paper-trades" && method === "GET") {
-    if (!useRealData()) simulateTick();
     const trades = [...readPaperTrades()].sort((a, b) => (b.opened_at || "").localeCompare(a.opened_at || ""));
     return {
       real_order_enabled: false,
@@ -1591,7 +1524,6 @@ async function localApi(path, options = {}) {
     };
   }
   if (rawPath === "/api/paper-trades/settle") {
-    if (!useRealData()) simulateTick();
     const trades = readPaperTrades();
     const closed = await settlePaperTrades(trades, {
       forceClose: Boolean(body.force_close),

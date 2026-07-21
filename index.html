@@ -57,7 +57,7 @@
         </ol>
       </section>
 
-      <section class="watchlist-panel">
+      <section class="watchlist-panel is-data-empty">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Step 1</p>
@@ -104,11 +104,11 @@
         </div>
       </section>
 
-      <section class="analysis-panel">
+      <section class="analysis-panel is-data-empty">
         <div class="selected-stock">
           <div>
             <p class="eyebrow">Step 2 · 売買条件を確認</p>
-            <h2 id="stockTitle">銘柄を読み込み中</h2>
+            <h2 id="stockTitle">価格データを確認中</h2>
             <p id="stockMeta" class="muted"></p>
           </div>
           <div class="score-block">
@@ -413,7 +413,7 @@
             GitHub Pages版はブラウザの制約（CORS）でYahoo Financeへ直接アクセスできないため、
             リアルタイム価格には自分専用の中継プロキシ（Cloudflare Worker・無料）が必要です。
             リポジトリの proxy/cloudflare-worker.js を約5分でデプロイし、URLをここに貼り付けてください。
-            未設定でもデモモード（価格シミュレーション）とJ-Quants連携は利用できます。
+            未設定時や取得失敗時は、誤認防止のため銘柄・価格・スコアを表示しません。J-Quants連携は単独でも利用できます。
           </p>
           <div class="button-row">
             <button id="exportDataButton" class="secondary-button" type="button">バックアップ保存</button>
