@@ -762,9 +762,10 @@ async function marketPhase() {
   }
   const hhmm = nowHhmm();
   if (hhmm < "09:00") return { market_phase: "pre", market_phase_label: "寄り前" };
-  if (hhmm <= "11:30") return { market_phase: "morning", market_phase_label: "朝トレ時間（新規OK）" };
-  if (hhmm < "12:30") return { market_phase: "lunch", market_phase_label: "昼休み（新規なし）" };
-  if (hhmm <= "15:30") return { market_phase: "afternoon", market_phase_label: "午後（決済のみ・新規なし）" };
+  if (hhmm < "09:05") return { market_phase: "pre", market_phase_label: "寄り付き観察（9:05開始）" };
+  if (hhmm < "11:30") return { market_phase: "morning", market_phase_label: "朝トレ時間（新規OK）" };
+  if (hhmm < "12:30") return { market_phase: "lunch", market_phase_label: "朝トレ終了（新規なし）" };
+  if (hhmm <= "15:30") return { market_phase: "afternoon", market_phase_label: "保有分のみ監視" };
   return { market_phase: "closed", market_phase_label: "場外" };
 }
 
@@ -1001,12 +1002,10 @@ async function summarizePaperTrades(trades, settings) {
 
 async function settlePaperTrades(trades, { forceClose = false, priceOverrides = {} } = {}) {
   const closed = [];
-  const today = todayJst();
   for (const trade of trades) {
     if (trade.status !== "open") continue;
     const override = priceOverrides[trade.symbol];
     const currentPrice = override != null && override > 0 ? override : await currentStockPrice(trade.symbol);
-    const openedDay = (trade.opened_at || "").slice(0, 10);
     let exitReason = null;
     let exitPrice = null;
 
@@ -1014,7 +1013,6 @@ async function settlePaperTrades(trades, { forceClose = false, priceOverrides = 
       if (forceClose) { exitReason = "manual_close"; exitPrice = Number(trade.entry_price); }
       else continue;
     } else if (forceClose) { exitReason = "manual_close"; exitPrice = currentPrice; }
-    else if (openedDay && openedDay < today) { exitReason = "overnight_close"; exitPrice = currentPrice; }
     else if (currentPrice <= Number(trade.stop_price)) { exitReason = "stop_loss"; exitPrice = Number(trade.stop_price); }
     else if (currentPrice >= Number(trade.target_price)) { exitReason = "take_profit"; exitPrice = Number(trade.target_price); }
 
@@ -1070,11 +1068,11 @@ async function runPaperAutoTrading(req) {
   const defaults = {
     capital_amount: 30000, max_loss_per_trade: 300, max_loss_per_day: 600, max_positions: 2,
     max_consecutive_losses: 3, broker_mode: "sbi_s_stock", order_amount_per_trade: null,
-    enforce_time_window: true, trade_start_time: "09:05", new_entry_end_time: "11:30", force_exit_time: "15:20",
+    enforce_time_window: true, trade_start_time: "09:05", new_entry_end_time: "11:30",
   };
   const p = { ...defaults, ...req };
   if (!BROKER_PRESETS[p.broker_mode]) throw { status: 400, detail: "Unsupported broker mode" };
-  for (const key of ["trade_start_time", "new_entry_end_time", "force_exit_time"]) {
+  for (const key of ["trade_start_time", "new_entry_end_time"]) {
     if (!HHMM_RE.test(p[key])) throw { status: 422, detail: `${key} はHH:MM形式で指定してください` };
   }
   const preset = BROKER_PRESETS[p.broker_mode];
@@ -1085,7 +1083,7 @@ async function runPaperAutoTrading(req) {
   };
   store.write("settings", settings);
   const trades = readPaperTrades();
-  const closed = await settlePaperTrades(trades, { forceClose: p.enforce_time_window && nowHhmm() >= p.force_exit_time });
+  const closed = await settlePaperTrades(trades);
   if (closed.length) writePaperTrades(trades);
 
   const { stocks: marketStocks, meta: marketMeta } = await getMarketStocks();

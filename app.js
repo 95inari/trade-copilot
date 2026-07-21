@@ -7,6 +7,8 @@ const state = {
   paperAutoBusy: false,
   brokerFilter: "all",
   notificationsEnabled: false,
+  marketHoliday: false,
+  ruleAlertTimer: null,
   todayPnl: null,
 };
 
@@ -92,10 +94,18 @@ async function api(path, options = {}) {
 
 function updateNotificationStatus() {
   const status = document.getElementById("notificationStatus");
+  const ruleButton = document.getElementById("ruleNotificationButton");
+  const updateRuleButton = (text, active = false, disabled = false) => {
+    if (!ruleButton) return;
+    ruleButton.textContent = text;
+    ruleButton.classList.toggle("is-active", active);
+    ruleButton.disabled = disabled;
+  };
   if (!("Notification" in window)) {
     state.notificationsEnabled = false;
     status.textContent = "通知: 非対応";
     status.className = "mini-status is-blocked";
+    updateRuleButton("通知非対応", false, true);
     return;
   }
 
@@ -103,12 +113,15 @@ function updateNotificationStatus() {
   if (Notification.permission === "granted") {
     status.textContent = "通知: 許可済み";
     status.className = "mini-status is-active";
+    updateRuleButton("ルール通知 ON", true);
   } else if (Notification.permission === "denied") {
     status.textContent = "通知: ブロック中";
     status.className = "mini-status is-blocked";
+    updateRuleButton("通知ブロック中", false, true);
   } else {
     status.textContent = "通知: 未許可";
     status.className = "mini-status";
+    updateRuleButton("ルール通知をON");
   }
 }
 
@@ -123,20 +136,16 @@ async function requestNotificationPermission() {
   }
 
   updateNotificationStatus();
+  if (Notification.permission === "granted") checkRuleAlerts();
   return Notification.permission === "granted";
 }
 
-function notifyPaperTrade(trade, sideLabel) {
+function sendAppNotification(title, body, tag) {
   if (!state.notificationsEnabled || !("Notification" in window)) {
     return;
   }
 
-  const title = `ペーパー${sideLabel}: ${trade.stock_name} ${trade.symbol}`;
-  const detail =
-    sideLabel === "売却"
-      ? `${trade.exit_reason} / 損益 ${yen.format(trade.realized_pnl || 0)} / 決済 ${formatNumber(trade.exit_price)}円`
-      : `${formatNumber(trade.quantity)}株 / 建玉 ${yen.format(trade.position_value)} / 損切り ${formatNumber(trade.stop_price)}円`;
-  const options = { body: detail, tag: `paper-${sideLabel}-${trade.id}`, icon: "./icons/icon-192.png" };
+  const options = { body, tag, icon: "./icons/icon-192.png" };
 
   // モバイル（Android Chrome / iOS PWA）は new Notification() 非対応で例外になるため、
   // Service Worker経由を優先し、通知の失敗で自動売買を止めない
@@ -155,6 +164,63 @@ function notifyPaperTrade(trade, sideLabel) {
   } catch {
     // 通知はベストエフォート
   }
+}
+
+function notifyPaperTrade(trade, sideLabel) {
+  const reason = EXIT_REASON_LABELS[trade.exit_reason] || trade.exit_reason;
+  const title = sideLabel === "売却"
+    ? `${reason}: ${trade.stock_name} ${trade.symbol}`
+    : `ペーパー購入: ${trade.stock_name} ${trade.symbol}`;
+  const detail = sideLabel === "売却"
+    ? `決済 ${formatNumber(trade.exit_price)}円 / 損益 ${yen.format(trade.realized_pnl || 0)}`
+    : `${formatNumber(trade.quantity)}株 / 利確 ${formatNumber(trade.target_price)}円 / 損切り ${formatNumber(trade.stop_price)}円`;
+  sendAppNotification(title, detail, `paper-${sideLabel}-${trade.id}`);
+}
+
+function jstClock() {
+  const date = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return {
+    date: date.toISOString().slice(0, 10),
+    time: date.toISOString().slice(11, 16),
+    weekday: date.getUTCDay(),
+  };
+}
+
+function notifyRuleOnce(kind, title, body) {
+  const { date } = jstClock();
+  const key = `tc_rule_alert_${date}_${kind}`;
+  try {
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+  } catch (_error) {
+    // 保存できない環境では、同一セッション中の通知重複をブラウザ側のtagで抑える
+  }
+  sendAppNotification(title, body, key);
+}
+
+function checkRuleAlerts() {
+  if (!state.notificationsEnabled || state.marketHoliday) return;
+  const { time, weekday } = jstClock();
+  if (weekday === 0 || weekday === 6) return;
+  if (time >= "09:05" && time < "11:30") {
+    notifyRuleOnce(
+      "morning_start",
+      "朝トレ時間｜11:30まで",
+      "値動きが大きい朝だけ判断します。利確・損切り価格を先に決めてください。",
+    );
+  } else if (time >= "11:30" && time <= "15:30") {
+    notifyRuleOnce(
+      "morning_end",
+      "朝トレ終了｜今日は追わない",
+      "新規エントリーは終了。保有分は利確・損切り到達だけ確認し、次の朝まで待ちます。",
+    );
+  }
+}
+
+function startRuleAlertMonitor() {
+  if (state.ruleAlertTimer) return;
+  checkRuleAlerts();
+  state.ruleAlertTimer = window.setInterval(checkRuleAlerts, 30_000);
 }
 
 async function loadSettings() {
@@ -189,6 +255,7 @@ function renderMarketPhase(data) {
   const cell = document.getElementById("marketPhaseCell");
   const label = document.getElementById("marketPhase");
   if (!data.market_phase_label) return;
+  state.marketHoliday = data.market_phase === "closed" && data.market_phase_label === "休場日";
   label.textContent = data.market_phase_label;
   cell.classList.toggle("is-morning", data.market_phase === "morning");
 }
@@ -959,7 +1026,6 @@ const EXIT_REASON_LABELS = {
   stop_loss: "損切り",
   take_profit: "利確",
   manual_close: "手動決済",
-  overnight_close: "持ち越し決済",
 };
 
 function renderPaperSummary(summary) {
@@ -1111,6 +1177,7 @@ document.getElementById("paperResetButton").addEventListener("click", bindAsync(
 document.getElementById("paperSettleButton").addEventListener("click", bindAsync(() => settlePaperTrades(false)));
 document.getElementById("paperCloseAllButton").addEventListener("click", bindAsync(() => settlePaperTrades(true)));
 document.getElementById("notificationButton").addEventListener("click", bindAsync(requestNotificationPermission));
+document.getElementById("ruleNotificationButton").addEventListener("click", bindAsync(requestNotificationPermission));
 document.getElementById("journalForm").addEventListener("submit", bindAsync(submitJournal));
 document.getElementById("reviewButton").addEventListener("click", bindAsync(generateReview));
 document.getElementById("jquantsForm").addEventListener("submit", bindAsync(submitJquantsCredentials));
@@ -1123,6 +1190,7 @@ window.addEventListener("resize", () => {
 
 // モバイルではバックグラウンドでタイマーが止まるため、画面復帰時に即チェックする
 document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkRuleAlerts();
   if (document.visibilityState === "visible" && state.paperAutoRunning && !state.paperAutoBusy) {
     executePaperAuto().catch((error) => showToast(error.message, "error"));
   }
@@ -1223,6 +1291,7 @@ loadSettings()
   )
   .then((results) => {
     updateNotificationStatus();
+    startRuleAlertMonitor();
     results
       .filter((result) => result.status === "rejected")
       .forEach((result) => showToast(result.reason?.message || "読み込みに失敗しました", "error"));

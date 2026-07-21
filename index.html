@@ -48,13 +48,14 @@
       <section class="workflow-banner" aria-label="基本の使い方">
         <div class="workflow-title">
           <span class="live-dot" aria-hidden="true"></span>
-          <strong>今日の判断フロー</strong>
+          <strong>朝だけトレード</strong>
         </div>
         <ol class="workflow-steps">
-          <li><span>1</span>候補を選ぶ</li>
-          <li><span>2</span>条件を確認</li>
-          <li><span>3</span>損失上限を決める</li>
+          <li><span>1</span>9:05から判断</li>
+          <li><span>2</span>11:30で新規終了</li>
+          <li><span>3</span>以降は利確・損切りだけ</li>
         </ol>
+        <button id="ruleNotificationButton" class="rule-alert-button" type="button" title="アプリを開いている間、朝トレ開始・終了と決済条件の到達を通知します">ルール通知をON</button>
       </section>
 
       <section class="watchlist-panel is-data-empty">
@@ -254,7 +255,7 @@
             </div>
             <label class="checkbox-label">
               <input id="paperTimeGuard" type="checkbox" checked />
-              朝トレルール（新規は9:05〜11:30のみ・15:20強制決済）
+              朝トレルール（新規は9:05〜11:30のみ・以降は利確／損切り到達だけ監視）
             </label>
             <div class="button-row">
               <button id="paperStartButton" class="primary-button" type="button">開始</button>
@@ -276,7 +277,7 @@
           <div id="paperHaltNotice" class="halt-notice" hidden></div>
           <div id="paperSummary" class="summary-grid"></div>
           <div id="paperStrategyStats" class="strategy-stats"></div>
-          <div id="paperAutoResult" class="result-box">実注文OFF。開始すると条件一致時のみ仮想購入として記録します。スマホでは画面を閉じると監視が止まるため、朝トレ中は画面を開いたままにしてください（復帰時は自動で決済チェックします）。</div>
+          <div id="paperAutoResult" class="result-box">実注文OFF。開始すると条件一致時のみ仮想購入として記録します。11:30以降は新規購入せず、利確・損切り価格への到達だけを監視します。スマホでは画面を閉じると監視が止まります。</div>
           <p id="paperTradeCount" class="muted small-note"></p>
           <div id="paperTrades" class="trade-list"></div>
         </section>
