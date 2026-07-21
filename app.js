@@ -273,23 +273,16 @@ function renderJquantsPanel(status) {
   const setup = document.getElementById("jquantsSetup");
   const connected = document.getElementById("jquantsConnected");
 
-  if (status.configured && status.needs_relogin) {
-    // パスワードは保存しない方針のため、トークン期限切れ（約1週間）で再ログインを促す
-    badge.textContent = "要再ログイン";
-    badge.className = "mini-status is-blocked";
-    setup.hidden = false;
-    connected.hidden = true;
-    showToastOnce("jq-relogin", "J-Quantsの接続トークンが期限切れです。再ログインしてください（週1回程度）");
-  } else if (status.configured) {
+  if (status.configured) {
     badge.textContent = "接続済み";
     badge.className = "mini-status is-active";
     setup.hidden = true;
     connected.hidden = false;
     const lines = [
-      `<p>アカウント: <strong>${escapeHtml(status.mail || "設定済み")}</strong></p>`,
-      `<p>本日のリクエスト: <strong>${escapeHtml(status.used)} / ${escapeHtml(status.budget)}</strong>（上限で自動停止・料金はかかりません）</p>`,
+      `<p>V2 APIキー: <strong>${escapeHtml(status.key_label || "設定済み")}</strong></p>`,
+      `<p>本日のアプリ内リクエスト: <strong>${escapeHtml(status.used)} / ${escapeHtml(status.budget)}</strong>（上限で自動停止）</p>`,
       `<p>銘柄マスタ: ${status.master_cached ? "取得済み" : "未取得"} / 営業日カレンダー: ${status.calendar_cached ? "取得済み" : "未取得"}</p>`,
-      "<p>パスワードは保存されず、接続用トークンのみ保存されています。</p>",
+      "<p>APIキーはこの端末のブラウザ内にのみ保存されています。</p>",
       status.last_error ? `<p><strong>直近のエラー:</strong> ${escapeHtml(status.last_error)}</p>` : "",
     ];
     document.getElementById("jquantsInfo").innerHTML = lines.join("");
@@ -310,19 +303,18 @@ async function submitJquantsCredentials(event) {
   event.preventDefault();
   const button = document.querySelector("#jquantsForm button[type=submit]");
   button.disabled = true;
-  button.textContent = "接続中…";
+  button.textContent = "APIキーを確認中…";
   try {
     const result = await api("/api/jquants/credentials", {
       method: "POST",
       body: JSON.stringify({
-        mail: document.getElementById("jquantsMail").value.trim(),
-        password: document.getElementById("jquantsPassword").value,
+        api_key: document.getElementById("jquantsApiKey").value.trim(),
       }),
     });
-    document.getElementById("jquantsPassword").value = "";
+    document.getElementById("jquantsApiKey").value = "";
     showToast(result.message || "接続しました", "success");
     renderJquantsPanel(result.status);
-    await loadCandidates(); // 正式名称・業種が即反映される
+    loadCandidates().catch((error) => showToast(error.message, "error"));
   } finally {
     button.disabled = false;
     button.textContent = "接続して保存";
@@ -330,7 +322,7 @@ async function submitJquantsCredentials(event) {
 }
 
 async function disconnectJquants() {
-  if (!window.confirm("J-Quants連携を解除しますか？（保存した認証情報を削除します）")) {
+  if (!window.confirm("J-Quants連携を解除しますか？（この端末に保存したAPIキーを削除します）")) {
     return;
   }
   const result = await api("/api/jquants/credentials", { method: "DELETE" });

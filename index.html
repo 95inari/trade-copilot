@@ -353,39 +353,36 @@
 
         <section id="toolPanelSettings" class="tool-panel" role="tabpanel" aria-labelledby="toolTabSettings" data-tool-panel="settings" hidden>
           <div class="section-heading compact">
-            <h3>J-Quants連携（無料）</h3>
+            <h3>J-Quants連携</h3>
             <div id="jquantsBadge" class="mini-status">確認中…</div>
           </div>
 
           <div id="jquantsSetup" hidden>
             <p class="muted small-note jq-note">
-              日本取引所グループ公式のデータAPIです。連携すると
+              日本取引所グループ公式のデータAPIです。SNSログイン後に発行する
+              <strong>V2 APIキー</strong>で連携すると、
               <strong>銘柄の正式名称・業種・休場日の自動判定・参考統計</strong>が使えるようになります。
-              無料プランのみ使用し、1日150リクエストで自動的に打ち止めになるため料金は一切かかりません。
+              無料プランでも利用でき、公式の上限に合わせて通信間隔を自動調整します。
             </p>
             <ol class="jq-steps">
               <li>
                 <a href="https://jpx-jquants.com/" target="_blank" rel="noopener">J-Quants公式サイト</a>
-                で無料プランに登録する（メールアドレスだけで登録できます）
+                にSNSでログインし、無料プランを選ぶ
               </li>
-              <li>登録したメールアドレスとパスワードを下に入力する</li>
+              <li>ダッシュボードでV2 APIキーを発行してコピーする</li>
+              <li>APIキーを下に貼り付ける</li>
               <li>「接続して保存」を押す</li>
             </ol>
             <form id="jquantsForm" class="form-stack">
               <label>
-                メールアドレス
-                <input id="jquantsMail" type="email" autocomplete="off" placeholder="J-Quantsに登録したメール" required />
-              </label>
-              <label>
-                パスワード
-                <input id="jquantsPassword" type="password" autocomplete="off" required />
+                V2 APIキー
+                <input id="jquantsApiKey" type="password" autocomplete="off" placeholder="ダッシュボードで発行したAPIキー" required />
               </label>
               <button class="primary-button" type="submit">接続して保存</button>
             </form>
             <p class="muted small-note jq-note">
-              パスワードは保存されません（接続用トークンのみこの端末のブラウザ内に保存）。
-              トークンの有効期限が切れる週1回程度、再ログインが必要です。
-              入力内容はJ-Quants公式API以外には送信されません。共有端末では使用しないでください。
+              APIキーはこの端末のブラウザ内だけに保存され、J-Quants公式API以外には送信されません。
+              共有端末では使用しないでください。
             </p>
           </div>
 

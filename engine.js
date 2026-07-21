@@ -5,7 +5,7 @@
  * J-Quantsクライアントをすべてブラウザ内で実行し、localStorageに保存する。
  *
  * データソース:
- *  - J-Quants: CORS開放されているためブラウザから直接（無料プラン限定ガード付き）
+ *  - J-Quants: CORS開放されているためブラウザからV2 APIへ直接接続。
  *  - Yahoo Finance: CORS非対応のため、任意設定のCloudflare Workerプロキシ経由。
  *    未設定時や取得失敗時は、誤認防止のため銘柄・価格データを表示しない。
  */
@@ -447,23 +447,22 @@ function clearYahooCache() {
 }
 
 // ---------------------------------------------------------------------------
-// J-Quants クライアント（ブラウザ直接・無料プラン限定ガード）
+// J-Quants V2クライアント（ブラウザから公式APIへ直接接続）
 // ---------------------------------------------------------------------------
 
-const JQ_BASE = "https://api.jquants.com/v1";
-const JQ_ALLOWED = new Set(["/token/auth_user", "/token/auth_refresh", "/listed/info", "/markets/trading_calendar", "/prices/daily_quotes"]);
+const JQ_BASE = "https://api.jquants.com/v2";
+const JQ_ALLOWED = new Set(["/equities/master", "/markets/calendar", "/equities/bars/daily"]);
 const JQ_DAILY_BUDGET = 150;
+const JQ_REQUEST_INTERVAL_MS = 12_000;
 const JQ_MASTER_TTL_MS = 7 * 86400_000;
 const JQ_CALENDAR_TTL_MS = 7 * 86400_000;
 const JQ_QUOTES_TTL_MS = 86400_000;
 
-// 旧バージョンがパスワードを保存していた場合は、メールだけ引き継いで破棄する
+// V1のメール・パスワード認証は廃止済み。旧トークンは利用せず端末から削除する。
 (() => {
-  const legacy = store.read("jq_credentials", null);
-  if (legacy && legacy.mail) {
-    store.write("jq_account", { mail: legacy.mail });
-    store.remove("jq_credentials");
-  }
+  store.remove("jq_credentials");
+  store.remove("jq_account");
+  store.remove("jq_token");
 })();
 
 const jq = {
@@ -471,29 +470,18 @@ const jq = {
   lastRequestAt: 0,
   _queue: null,
 
-  // セキュリティ方針: パスワードはlocalStorageに保存しない。
-  // 保存するのは接続用トークン（リフレッシュトークン: 約1週間有効）のみ。
-  // 期限切れ時は再ログインを促す。
+  // V2はダッシュボードで発行したAPIキーを使用する。キーはこの端末内だけに保存する。
   isConfigured() {
-    const account = store.read("jq_account", null);
-    const token = store.read("jq_token", {});
-    return Boolean(account?.mail && token.refresh_token);
+    return Boolean(store.read("jq_api_key", ""));
   },
 
   needsRelogin() {
-    const account = store.read("jq_account", null);
-    if (!account?.mail) return false;
-    const token = store.read("jq_token", {});
-    const refreshValid = token.refresh_token && token.refresh_expires_at > Date.now();
-    const idValid = token.id_token && token.id_expires_at > Date.now();
-    return !refreshValid && !idValid;
+    return false;
   },
 
-  configuredMail() {
-    const account = store.read("jq_account", null);
-    if (!account?.mail || !account.mail.includes("@")) return null;
-    const [local, domain] = account.mail.split("@");
-    return `${local.slice(0, 2)}***@${domain}`;
+  configuredKeyLabel() {
+    const key = String(store.read("jq_api_key", ""));
+    return key ? `••••${key.slice(-4)}` : null;
   },
 
   budgetStatus() {
@@ -514,15 +502,15 @@ const jq = {
     return true;
   },
 
-  async request(path, { params, body, idToken } = {}) {
+  async request(path, { params, apiKey } = {}) {
     if (!JQ_ALLOWED.has(path)) {
-      throw new Error(`J-Quants: ${path} は無料プラン許可リストにありません`);
+      throw new Error(`J-Quants: ${path} はアプリの許可リストにありません`);
     }
     if (!this.consumeBudget()) return null;
 
-    // 直列化: 並行リクエストでも1秒間隔を保証する
+    // 直列化: 並行リクエストでも無料プランの上限（5件/分）を超えない
     const task = async () => {
-      const wait = 1000 - (Date.now() - this.lastRequestAt);
+      const wait = JQ_REQUEST_INTERVAL_MS - (Date.now() - this.lastRequestAt);
       if (wait > 0) await sleep(wait);
       this.lastRequestAt = Date.now();
 
@@ -530,9 +518,8 @@ const jq = {
       if (params) url += `?${new URLSearchParams(params)}`;
       try {
         const response = await fetch(url, {
-          method: body ? "POST" : "GET",
-          headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
-          body: body ? JSON.stringify(body) : undefined,
+          method: "GET",
+          headers: { "x-api-key": apiKey || store.read("jq_api_key", "") },
         });
         if (!response.ok) {
           this.lastError = `${path}: HTTP ${response.status}`;
@@ -549,28 +536,6 @@ const jq = {
     return this._queue;
   },
 
-  async getRefreshToken() {
-    const cached = store.read("jq_token", {});
-    if (cached.refresh_token && cached.refresh_expires_at > Date.now()) return cached.refresh_token;
-    // パスワードを保存していないため自動再ログインはしない（UIで再ログインを促す）
-    if (store.read("jq_account", null)?.mail) {
-      this.lastError = "接続トークンの期限が切れました。J-Quantsに再ログインしてください（週1回程度）";
-    }
-    return null;
-  },
-
-  async getIdToken() {
-    const cached = store.read("jq_token", {});
-    if (cached.id_token && cached.id_expires_at > Date.now()) return cached.id_token;
-    const refreshToken = await this.getRefreshToken();
-    if (!refreshToken) return null;
-    const payload = await this.request("/token/auth_refresh", { params: { refreshtoken: refreshToken } });
-    const idToken = payload?.idToken;
-    if (!idToken) return null;
-    store.write("jq_token", { ...store.read("jq_token", {}), id_token: idToken, id_expires_at: Date.now() + 23 * 3600_000 });
-    return idToken;
-  },
-
   readCache(name, ttlMs) {
     const cached = store.read(`jq_cache_${name}`, null);
     if (!cached || Date.now() - cached.cached_at > ttlMs) return null;
@@ -581,16 +546,15 @@ const jq = {
     store.write(`jq_cache_${name}`, { cached_at: Date.now(), value });
   },
 
-  async getPaginated(path, params, listKey, maxPages = 3) {
-    const idToken = await this.getIdToken();
-    if (!idToken) return null;
+  async getPaginated(path, params, maxPages = 3) {
+    if (!this.isConfigured()) return null;
     const rows = [];
     let paginationKey = null;
     for (let page = 0; page < maxPages; page += 1) {
       const pageParams = { ...params, ...(paginationKey ? { pagination_key: paginationKey } : {}) };
-      const payload = await this.request(path, { params: pageParams, idToken });
+      const payload = await this.request(path, { params: pageParams });
       if (!payload) return rows.length ? rows : null;
-      rows.push(...(payload[listKey] || []));
+      rows.push(...(payload.data || []));
       paginationKey = payload.pagination_key;
       if (!paginationKey) break;
     }
@@ -601,15 +565,15 @@ const jq = {
     const cached = this.readCache("listed", JQ_MASTER_TTL_MS);
     if (cached) return cached;
     if (!this.isConfigured()) return {};
-    const rows = await this.getPaginated("/listed/info", {}, "info", 3);
+    const rows = await this.getPaginated("/equities/master", {}, 3);
     if (!rows?.length) return {};
     const master = {};
     for (const row of rows) {
       const code = String(row.Code || "");
       const code4 = code.length === 5 && code.endsWith("0") ? code.slice(0, 4) : code;
-      let market = String(row.MarketCodeName || "");
+      let market = String(row.MktNm || "");
       if (market && !market.startsWith("東証") && !market.includes("PRO")) market = `東証${market}`;
-      master[code4] = { name: String(row.CompanyName || ""), market, sector: String(row.Sector33CodeName || "") };
+      master[code4] = { name: String(row.CoName || ""), market, sector: String(row.S33Nm || "") };
     }
     this.writeCache("listed", master);
     return master;
@@ -621,10 +585,10 @@ const jq = {
     if (!this.isConfigured()) return {};
     const from = jstDate(-7 * 86400_000).toISOString().slice(0, 10).replaceAll("-", "");
     const to = jstDate(45 * 86400_000).toISOString().slice(0, 10).replaceAll("-", "");
-    const rows = await this.getPaginated("/markets/trading_calendar", { from, to }, "trading_calendar", 2);
+    const rows = await this.getPaginated("/markets/calendar", { from, to }, 2);
     if (!rows?.length) return {};
     const calendar = {};
-    for (const row of rows) calendar[String(row.Date || "")] = String(row.HolidayDivision || "");
+    for (const row of rows) calendar[String(row.Date || "")] = String(row.HolDiv || "");
     this.writeCache("calendar", calendar);
     return calendar;
   },
@@ -643,17 +607,16 @@ const jq = {
     const to = jstDate(-(12 * 7 + 1) * 86400_000).toISOString().slice(0, 10);
     const from = jstDate(-(16 * 7 + 1) * 86400_000).toISOString().slice(0, 10);
     const rows = await this.getPaginated(
-      "/prices/daily_quotes",
+      "/equities/bars/daily",
       { code, from: from.replaceAll("-", ""), to: to.replaceAll("-", "") },
-      "daily_quotes",
       2,
     );
     if (rows === null) return null;
     const ranges = [];
     const volumes = [];
     for (const row of rows) {
-      if (row.High && row.Low && row.Close) ranges.push(((row.High - row.Low) / row.Close) * 100);
-      if (row.Volume) volumes.push(Number(row.Volume));
+      if (row.H && row.L && row.C) ranges.push(((row.H - row.L) / row.C) * 100);
+      if (row.Vo) volumes.push(Number(row.Vo));
     }
     let stats = {};
     if (ranges.length) {
@@ -668,24 +631,23 @@ const jq = {
     return Object.keys(stats).length ? stats : null;
   },
 
-  async saveCredentials(mail, password) {
-    // パスワードは認証にのみ使用し、保存しない（保存するのはトークンだけ）
-    const payload = await this.request("/token/auth_user", { body: { mailaddress: mail, password } });
-    const token = payload?.refreshToken;
-    if (!token) {
+  async saveApiKey(apiKey) {
+    const key = String(apiKey || "").trim();
+    const payload = await this.request("/equities/master", { params: { code: "86970" }, apiKey: key });
+    if (!payload?.data?.length) {
       const error = this.lastError || "";
       if (/HTTP 4/.test(error)) {
-        return { ok: false, message: "メールアドレスまたはパスワードが正しくありません。J-Quantsに登録した情報を確認してください" };
+        return { ok: false, message: "APIキーを確認できませんでした。J-Quantsダッシュボードで発行したV2 APIキーを確認してください" };
       }
       if (error.includes("予算")) return { ok: false, message: error };
       return { ok: false, message: `J-Quantsに接続できませんでした（${error || "ネットワークを確認してください"}）` };
     }
-    store.write("jq_account", { mail });
-    store.write("jq_token", { refresh_token: token, refresh_expires_at: Date.now() + 6 * 86400_000 });
-    return { ok: true, message: "接続に成功しました（パスワードは保存されません）" };
+    store.write("jq_api_key", key);
+    return { ok: true, message: "J-Quants V2 APIに接続しました" };
   },
 
   clearCredentials() {
+    store.remove("jq_api_key");
     store.remove("jq_account");
     store.remove("jq_credentials");
     store.remove("jq_token");
@@ -695,7 +657,7 @@ const jq = {
     return {
       configured: this.isConfigured(),
       source: this.isConfigured() ? "browser" : null,
-      mail: this.configuredMail(),
+      key_label: this.configuredKeyLabel(),
       needs_relogin: this.needsRelogin(),
       ...this.budgetStatus(),
       master_cached: this.readCache("listed", JQ_MASTER_TTL_MS) !== null,
@@ -1348,13 +1310,11 @@ async function localApi(path, options = {}) {
   // --- J-Quants ---
   if (rawPath === "/api/jquants/status") return { status: jq.statusSummary() };
   if (rawPath === "/api/jquants/credentials" && method === "POST") {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.mail || "") || !body.password) {
-      throw { status: 422, detail: "メールアドレスとパスワードを入力してください" };
+    if (!String(body.api_key || "").trim()) {
+      throw { status: 422, detail: "J-Quants V2のAPIキーを入力してください" };
     }
-    const result = await jq.saveCredentials(body.mail, body.password);
+    const result = await jq.saveApiKey(body.api_key);
     if (!result.ok) throw { status: 400, detail: result.message };
-    await jq.getListedMaster();
-    await jq.getTradingCalendar();
     clearYahooCache();
     return { message: result.message, status: jq.statusSummary() };
   }
