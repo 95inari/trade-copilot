@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="日本株デイトレの監視・リスク管理・日誌支援ツール（売買助言ではありません）" />
-    <meta name="theme-color" content="#136f63" />
+    <meta name="theme-color" content="#087a65" />
     <title>Trade Co-Pilot</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon-192.png" type="image/png" />
@@ -16,9 +16,13 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <p class="eyebrow">Daytrade Assist OS</p>
-        <h1>Trade Co-Pilot</h1>
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">T</div>
+        <div>
+          <p class="eyebrow">デイトレ判断サポート</p>
+          <h1>Trade Co-Pilot</h1>
+          <p class="brand-caption">迷わず選び、損失を決め、記録する。</p>
+        </div>
       </div>
       <div class="status-strip">
         <div id="marketPhaseCell">
@@ -41,22 +45,35 @@
     </header>
 
     <main class="layout">
+      <section class="workflow-banner" aria-label="基本の使い方">
+        <div class="workflow-title">
+          <span class="live-dot" aria-hidden="true"></span>
+          <strong>今日の判断フロー</strong>
+        </div>
+        <ol class="workflow-steps">
+          <li><span>1</span>候補を選ぶ</li>
+          <li><span>2</span>条件を確認</li>
+          <li><span>3</span>損失上限を決める</li>
+        </ol>
+      </section>
+
       <section class="watchlist-panel">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Screening</p>
-            <h2>本日の候補銘柄</h2>
+            <p class="eyebrow">Step 1</p>
+            <h2>候補を選ぶ</h2>
+            <p class="section-description">条件に合う銘柄を比較します</p>
             <p id="watchlistUpdated" class="muted small-note"></p>
           </div>
           <div class="watchlist-actions">
-            <select id="watchlistBrokerFilter" title="取扱銘柄フィルタ">
+            <select id="watchlistBrokerFilter" aria-label="取扱銘柄フィルタ">
               <option value="all">全銘柄</option>
               <option value="sbi_s_stock">SBI証券 S株のみ</option>
               <option value="paypay_amount">PayPay証券のみ</option>
               <option value="rakuten_kabumini">楽天証券 かぶミニのみ</option>
               <option value="rakuten_amount">楽天証券 金額指定のみ</option>
             </select>
-            <button id="refreshButton" class="icon-button" title="更新" type="button">↻</button>
+            <button id="refreshButton" class="icon-button" aria-label="候補銘柄を更新" title="更新" type="button">↻</button>
           </div>
         </div>
         <div class="watchlist-manage">
@@ -90,18 +107,23 @@
       <section class="analysis-panel">
         <div class="selected-stock">
           <div>
-            <p class="eyebrow">Selected</p>
+            <p class="eyebrow">Step 2 · 売買条件を確認</p>
             <h2 id="stockTitle">銘柄を読み込み中</h2>
             <p id="stockMeta" class="muted"></p>
           </div>
           <div class="score-block">
+            <span class="score-label">総合</span>
             <span id="rankLabel" class="rank-badge">-</span>
             <strong id="totalScore">0</strong>
             <small>/ 100</small>
           </div>
         </div>
 
-        <div class="chart-area">
+        <div class="chart-area" aria-label="選択銘柄の値動きチャート">
+          <div class="chart-header">
+            <strong>値動き</strong>
+            <div class="chart-legend"><span class="legend-up">上昇</span><span class="legend-down">下落</span><span class="legend-vwap">VWAP</span></div>
+          </div>
           <canvas id="priceChart" width="860" height="340"></canvas>
         </div>
 
@@ -122,15 +144,32 @@
         </div>
 
         <section class="assist-comment">
-          <p class="eyebrow">Assist Comment</p>
+          <p class="eyebrow">判断メモ</p>
           <p id="assistComment"></p>
         </section>
       </section>
 
       <aside class="side-panel">
-        <section class="tool-panel">
+        <div class="tool-area-heading">
+          <div>
+            <p class="eyebrow">Step 3</p>
+            <h2>実行と振り返り</h2>
+            <p class="section-description">必要な機能だけを開いて使えます</p>
+          </div>
+          <div class="tool-tabs" role="tablist" aria-label="補助機能">
+            <button id="toolTabRisk" class="tool-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="toolPanelRisk" data-tool-tab="risk">ロット計算</button>
+            <button id="toolTabPaper" class="tool-tab" type="button" role="tab" aria-selected="false" aria-controls="toolPanelPaper" data-tool-tab="paper">ペーパー売買</button>
+            <button id="toolTabJournal" class="tool-tab" type="button" role="tab" aria-selected="false" aria-controls="toolPanelJournal" data-tool-tab="journal">日誌</button>
+            <button id="toolTabSettings" class="tool-tab" type="button" role="tab" aria-selected="false" aria-controls="toolPanelSettings" data-tool-tab="settings">設定</button>
+          </div>
+        </div>
+
+        <section id="toolPanelRisk" class="tool-panel" role="tabpanel" aria-labelledby="toolTabRisk" data-tool-panel="risk">
           <div class="section-heading compact">
-            <h3>ロット計算</h3>
+            <div>
+              <h3>損失からロットを決める</h3>
+              <p class="section-description">先に損失上限を固定して、適正な株数を計算します</p>
+            </div>
           </div>
           <form id="riskForm" class="form-stack">
             <label>
@@ -158,9 +197,12 @@
           <div id="riskResult" class="result-box"></div>
         </section>
 
-        <section class="tool-panel">
+        <section id="toolPanelPaper" class="tool-panel" role="tabpanel" aria-labelledby="toolTabPaper" data-tool-panel="paper" hidden>
           <div class="section-heading compact">
-            <h3>ペーパー自動売買</h3>
+            <div>
+              <h3>ペーパー売買</h3>
+              <p class="section-description">実注文なしでルールを検証します</p>
+            </div>
           </div>
           <form id="paperAutoForm" class="form-stack">
             <label>
@@ -239,9 +281,12 @@
           <div id="paperTrades" class="trade-list"></div>
         </section>
 
-        <section class="tool-panel">
+        <section id="toolPanelJournal" class="tool-panel" role="tabpanel" aria-labelledby="toolTabJournal" data-tool-panel="journal" hidden>
           <div class="section-heading compact">
-            <h3>トレード日誌</h3>
+            <div>
+              <h3>トレード日誌</h3>
+              <p class="section-description">結果と感情を残して次の判断に活かします</p>
+            </div>
           </div>
           <form id="journalForm" class="form-stack">
             <label>
@@ -297,7 +342,7 @@
           <div id="journalList" class="trade-list"></div>
         </section>
 
-        <section class="tool-panel">
+        <section class="tool-panel companion-panel" role="tabpanel" aria-labelledby="toolTabJournal" data-tool-panel="journal" hidden>
           <div class="section-heading compact">
             <h3>AI反省コメント</h3>
             <button id="reviewButton" class="secondary-button" type="button">生成</button>
@@ -305,7 +350,7 @@
           <div id="aiReview" class="review-box">日誌を登録すると、当日の問題点と改善案を生成できます。</div>
         </section>
 
-        <section class="tool-panel">
+        <section id="toolPanelSettings" class="tool-panel" role="tabpanel" aria-labelledby="toolTabSettings" data-tool-panel="settings" hidden>
           <div class="section-heading compact">
             <h3>J-Quants連携（無料）</h3>
             <div id="jquantsBadge" class="mini-status">確認中…</div>
@@ -352,7 +397,7 @@
           </div>
         </section>
 
-        <section class="tool-panel">
+        <section class="tool-panel companion-panel" role="tabpanel" aria-labelledby="toolTabSettings" data-tool-panel="settings" hidden>
           <div class="section-heading compact">
             <h3>データ設定</h3>
           </div>

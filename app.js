@@ -1014,6 +1014,56 @@ async function loadPaperTrades() {
     .join("");
 }
 
+function setupToolTabs() {
+  const tabs = [...document.querySelectorAll("[data-tool-tab]")];
+  const panels = [...document.querySelectorAll("[data-tool-panel]")];
+  const allowedTabs = tabs.map((tab) => tab.dataset.toolTab);
+  let savedTab = "risk";
+
+  try {
+    savedTab = localStorage.getItem("trade-copilot-active-tool") || "risk";
+  } catch (_error) {
+    // プライベートブラウズ等で保存できない場合もタブ自体は利用できる
+  }
+
+  function activateTool(toolName, shouldFocus = false) {
+    const activeName = allowedTabs.includes(toolName) ? toolName : "risk";
+    tabs.forEach((tab) => {
+      const active = tab.dataset.toolTab === activeName;
+      tab.classList.toggle("is-active", active);
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+      if (active && shouldFocus) tab.focus();
+    });
+    panels.forEach((panel) => {
+      panel.hidden = panel.dataset.toolPanel !== activeName;
+    });
+    try {
+      localStorage.setItem("trade-copilot-active-tool", activeName);
+    } catch (_error) {
+      // 保存不可でも現在の表示は維持する
+    }
+  }
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => activateTool(tab.dataset.toolTab));
+    tab.addEventListener("keydown", (event) => {
+      let nextIndex = null;
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (index + 1) % tabs.length;
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === "Home") nextIndex = 0;
+      if (event.key === "End") nextIndex = tabs.length - 1;
+      if (nextIndex === null) return;
+      event.preventDefault();
+      activateTool(tabs[nextIndex].dataset.toolTab, true);
+    });
+  });
+
+  activateTool(savedTab);
+}
+
+setupToolTabs();
+
 document.getElementById("refreshButton").addEventListener("click", bindAsync(loadCandidates));
 document.getElementById("watchlistBrokerFilter").addEventListener("change", bindAsync(loadCandidates));
 document.getElementById("watchlistAddButton").addEventListener("click", bindAsync(addWatchlistSymbol));
