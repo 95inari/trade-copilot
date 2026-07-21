@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="日本株デイトレの監視・リスク管理・日誌支援ツール（売買助言ではありません）" />
+    <meta name="theme-color" content="#136f63" />
+    <title>Trade Co-Pilot</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="TradeCoPilot" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Daytrade Assist OS</p>
+        <h1>Trade Co-Pilot</h1>
+      </div>
+      <div class="status-strip">
+        <div id="marketPhaseCell">
+          <span>市場</span>
+          <strong id="marketPhase">-</strong>
+        </div>
+        <div>
+          <span>本日損益</span>
+          <strong id="todayPnl">0円</strong>
+        </div>
+        <div>
+          <span>取引回数</span>
+          <strong id="todayTrades">0</strong>
+        </div>
+        <div id="stopLineCell">
+          <span>停止ライン</span>
+          <strong id="stopLine">-600円</strong>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="watchlist-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Screening</p>
+            <h2>本日の候補銘柄</h2>
+            <p id="watchlistUpdated" class="muted small-note"></p>
+          </div>
+          <div class="watchlist-actions">
+            <select id="watchlistBrokerFilter" title="取扱銘柄フィルタ">
+              <option value="all">全銘柄</option>
+              <option value="sbi_s_stock">SBI証券 S株のみ</option>
+              <option value="paypay_amount">PayPay証券のみ</option>
+              <option value="rakuten_kabumini">楽天証券 かぶミニのみ</option>
+              <option value="rakuten_amount">楽天証券 金額指定のみ</option>
+            </select>
+            <button id="refreshButton" class="icon-button" title="更新" type="button">↻</button>
+          </div>
+        </div>
+        <div class="watchlist-manage">
+          <input
+            id="watchlistAddInput"
+            type="text"
+            maxlength="4"
+            placeholder="監視銘柄を追加（例: 7203）"
+            autocomplete="off"
+          />
+          <button id="watchlistAddButton" class="secondary-button" type="button">追加</button>
+        </div>
+        <div id="watchlistChips" class="watchlist-chips"></div>
+        <p id="dataSourceNote" class="muted small-note data-source-note"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>銘柄</th>
+                <th>判定</th>
+                <th>スコア</th>
+                <th>前日比</th>
+                <th>出来高増</th>
+              </tr>
+            </thead>
+            <tbody id="stockRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="analysis-panel">
+        <div class="selected-stock">
+          <div>
+            <p class="eyebrow">Selected</p>
+            <h2 id="stockTitle">銘柄を読み込み中</h2>
+            <p id="stockMeta" class="muted"></p>
+          </div>
+          <div class="score-block">
+            <span id="rankLabel" class="rank-badge">-</span>
+            <strong id="totalScore">0</strong>
+            <small>/ 100</small>
+          </div>
+        </div>
+
+        <div class="chart-area">
+          <canvas id="priceChart" width="860" height="340"></canvas>
+        </div>
+
+        <div class="analysis-grid">
+          <section class="tool-panel">
+            <div class="section-heading compact">
+              <h3>エントリー前チェック</h3>
+            </div>
+            <div id="checklist" class="checklist"></div>
+          </section>
+
+          <section class="tool-panel">
+            <div class="section-heading compact">
+              <h3>条件一致度</h3>
+            </div>
+            <div id="scoreBreakdown" class="score-list"></div>
+          </section>
+        </div>
+
+        <section class="assist-comment">
+          <p class="eyebrow">Assist Comment</p>
+          <p id="assistComment"></p>
+        </section>
+      </section>
+
+      <aside class="side-panel">
+        <section class="tool-panel">
+          <div class="section-heading compact">
+            <h3>ロット計算</h3>
+          </div>
+          <form id="riskForm" class="form-stack">
+            <label>
+              資金額
+              <input id="capitalAmount" type="number" value="30000" min="1" step="any" required />
+            </label>
+            <label>
+              1回の許容損失
+              <input id="maxLossPerTrade" type="number" value="300" min="1" step="any" required />
+            </label>
+            <label>
+              エントリー価格
+              <input id="entryPrice" type="number" min="0.1" step="any" required />
+            </label>
+            <label>
+              損切り価格
+              <input id="stopPrice" type="number" min="0.1" step="any" required />
+            </label>
+            <label>
+              利確価格（任意・リスクリワード計算用）
+              <input id="takeProfitPrice" type="number" min="0.1" step="any" />
+            </label>
+            <button class="primary-button" type="submit">計算</button>
+          </form>
+          <div id="riskResult" class="result-box"></div>
+        </section>
+
+        <section class="tool-panel">
+          <div class="section-heading compact">
+            <h3>ペーパー自動売買</h3>
+          </div>
+          <form id="paperAutoForm" class="form-stack">
+            <label>
+              想定証券会社
+              <select id="paperBrokerMode">
+                <option value="sbi_s_stock">SBI証券 S株（1株単位）</option>
+                <option value="paypay_amount">PayPay証券（金額指定・端数株）</option>
+                <option value="rakuten_kabumini">楽天証券 かぶミニ（1株単位）</option>
+                <option value="rakuten_amount">楽天証券 金額指定（端数株）</option>
+              </select>
+            </label>
+            <label>
+              仮想元本
+              <input id="paperCapital" type="number" value="30000" min="1" step="any" required />
+            </label>
+            <div class="two-col">
+              <label>
+                1回損失
+                <input id="paperMaxLoss" type="number" value="300" min="1" step="any" required />
+              </label>
+              <label>
+                1日損失
+                <input id="paperDailyLoss" type="number" value="600" min="1" step="any" required />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                最大保有
+                <input id="paperMaxPositions" type="number" value="2" min="1" max="10" required />
+              </label>
+              <label>
+                1銘柄上限
+                <input id="paperOrderAmount" type="number" value="15000" min="100" step="any" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                連敗で停止
+                <input id="paperMaxStreak" type="number" value="3" min="1" max="10" required />
+              </label>
+              <label>
+                監視頻度
+                <select id="paperIntervalSeconds">
+                  <option value="10">10秒ごと</option>
+                  <option value="30" selected>30秒ごと</option>
+                  <option value="60">60秒ごと</option>
+                </select>
+              </label>
+            </div>
+            <label class="checkbox-label">
+              <input id="paperTimeGuard" type="checkbox" checked />
+              朝トレルール（新規は9:05〜11:30のみ・15:20強制決済）
+            </label>
+            <div class="button-row">
+              <button id="paperStartButton" class="primary-button" type="button">開始</button>
+              <button id="paperStopButton" class="danger-button" type="button" disabled>停止</button>
+            </div>
+            <div class="button-row">
+              <button id="paperSettleButton" class="secondary-button" type="button">決済チェック</button>
+              <button id="paperCloseAllButton" class="secondary-button" type="button">全決済</button>
+            </div>
+            <div class="button-row">
+              <button id="notificationButton" class="secondary-button" type="button">通知を許可</button>
+              <button id="paperResetButton" class="secondary-button" type="button">リセット</button>
+            </div>
+            <div class="button-row">
+              <div id="notificationStatus" class="mini-status">通知: 未確認</div>
+            </div>
+          </form>
+          <div id="paperAutoStatus" class="status-box">停止中</div>
+          <div id="paperHaltNotice" class="halt-notice" hidden></div>
+          <div id="paperSummary" class="summary-grid"></div>
+          <div id="paperStrategyStats" class="strategy-stats"></div>
+          <div id="paperAutoResult" class="result-box">実注文OFF。開始すると条件一致時のみ仮想購入として記録します。スマホでは画面を閉じると監視が止まるため、朝トレ中は画面を開いたままにしてください（復帰時は自動で決済チェックします）。</div>
+          <p id="paperTradeCount" class="muted small-note"></p>
+          <div id="paperTrades" class="trade-list"></div>
+        </section>
+
+        <section class="tool-panel">
+          <div class="section-heading compact">
+            <h3>トレード日誌</h3>
+          </div>
+          <form id="journalForm" class="form-stack">
+            <label>
+              エントリー理由
+              <select id="entryReason">
+                <option>VWAP押し目</option>
+                <option>高値ブレイク</option>
+                <option>出来高急増</option>
+                <option>材料確認</option>
+              </select>
+            </label>
+            <div class="two-col">
+              <label>
+                入口
+                <input id="journalEntry" type="number" min="0.1" step="any" required />
+              </label>
+              <label>
+                出口
+                <input id="journalExit" type="number" min="0.1" step="any" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                株数
+                <input id="journalQty" type="number" value="100" min="0.0001" step="any" required />
+              </label>
+              <label>
+                ルール遵守
+                <select id="ruleFollowed">
+                  <option value="true">はい</option>
+                  <option value="false">いいえ</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              感情タグ
+              <select id="emotionTag">
+                <option value="">なし</option>
+                <option>焦り</option>
+                <option>恐怖</option>
+                <option>欲張り</option>
+                <option>冷静</option>
+              </select>
+            </label>
+            <label>
+              メモ
+              <textarea id="journalNotes" rows="3" placeholder="損切り位置、利確理由、反省点"></textarea>
+            </label>
+            <button class="primary-button" type="submit">日誌に追加</button>
+          </form>
+          <div id="journalSummary" class="journal-summary"></div>
+          <p id="journalCount" class="muted small-note"></p>
+          <div id="journalList" class="trade-list"></div>
+        </section>
+
+        <section class="tool-panel">
+          <div class="section-heading compact">
+            <h3>AI反省コメント</h3>
+            <button id="reviewButton" class="secondary-button" type="button">生成</button>
+          </div>
+          <div id="aiReview" class="review-box">日誌を登録すると、当日の問題点と改善案を生成できます。</div>
+        </section>
+
+        <section class="tool-panel">
+          <div class="section-heading compact">
+            <h3>J-Quants連携（無料）</h3>
+            <div id="jquantsBadge" class="mini-status">確認中…</div>
+          </div>
+
+          <div id="jquantsSetup" hidden>
+            <p class="muted small-note jq-note">
+              日本取引所グループ公式のデータAPIです。連携すると
+              <strong>銘柄の正式名称・業種・休場日の自動判定・参考統計</strong>が使えるようになります。
+              無料プランのみ使用し、1日150リクエストで自動的に打ち止めになるため料金は一切かかりません。
+            </p>
+            <ol class="jq-steps">
+              <li>
+                <a href="https://jpx-jquants.com/" target="_blank" rel="noopener">J-Quants公式サイト</a>
+                で無料プランに登録する（メールアドレスだけで登録できます）
+              </li>
+              <li>登録したメールアドレスとパスワードを下に入力する</li>
+              <li>「接続して保存」を押す</li>
+            </ol>
+            <form id="jquantsForm" class="form-stack">
+              <label>
+                メールアドレス
+                <input id="jquantsMail" type="email" autocomplete="off" placeholder="J-Quantsに登録したメール" required />
+              </label>
+              <label>
+                パスワード
+                <input id="jquantsPassword" type="password" autocomplete="off" required />
+              </label>
+              <button class="primary-button" type="submit">接続して保存</button>
+            </form>
+            <p class="muted small-note jq-note">
+              パスワードは保存されません（接続用トークンのみこの端末のブラウザ内に保存）。
+              トークンの有効期限が切れる週1回程度、再ログインが必要です。
+              入力内容はJ-Quants公式API以外には送信されません。共有端末では使用しないでください。
+            </p>
+          </div>
+
+          <div id="jquantsConnected" hidden>
+            <div id="jquantsInfo" class="result-box"></div>
+            <div class="button-row">
+              <button id="jquantsRefreshButton" class="secondary-button" type="button">状態を更新</button>
+              <button id="jquantsDisconnectButton" class="secondary-button" type="button">連携を解除</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="tool-panel">
+          <div class="section-heading compact">
+            <h3>データ設定</h3>
+          </div>
+          <p id="dataModeNote" class="muted small-note jq-note"></p>
+          <form id="dataConfigForm" class="form-stack">
+            <label>
+              YahooプロキシURL（任意・リアルタイム化用）
+              <input id="proxyUrl" type="url" placeholder="https://xxx.workers.dev" autocomplete="off" />
+            </label>
+            <button class="primary-button" type="submit">保存</button>
+          </form>
+          <p class="muted small-note jq-note">
+            GitHub Pages版はブラウザの制約（CORS）でYahoo Financeへ直接アクセスできないため、
+            リアルタイム価格には自分専用の中継プロキシ（Cloudflare Worker・無料）が必要です。
+            リポジトリの proxy/cloudflare-worker.js を約5分でデプロイし、URLをここに貼り付けてください。
+            未設定でもデモモード（価格シミュレーション）とJ-Quants連携は利用できます。
+          </p>
+          <div class="button-row">
+            <button id="exportDataButton" class="secondary-button" type="button">バックアップ保存</button>
+            <button id="importDataButton" class="secondary-button" type="button">復元（インポート）</button>
+          </div>
+          <input id="importDataFile" type="file" accept="application/json,.json" hidden />
+          <p class="muted small-note jq-note">
+            日誌・取引・設定はこの端末のブラウザ内にのみ保存されます。
+            <strong>iOSのSafariは7日間使わないとデータを自動削除することがあります。</strong>
+            また「ホーム画面に追加」したアプリ版とブラウザ版はデータが別々です。
+            大事な記録は定期的にバックアップ保存してください（J-Quantsの認証情報は含まれません）。
+          </p>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="app-footer muted">
+      本アプリは投資判断の補助・記録ツールであり、投資助言・売買推奨ではありません。実注文機能はなく、ペーパートレードのみです。
+      表示データには遅延・誤差があり得ます。投資判断はご自身の責任で行ってください。
+    </footer>
+    <div id="toastContainer" class="toast-container"></div>
+    <script src="./engine.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

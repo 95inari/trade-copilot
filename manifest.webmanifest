@@ -1,0 +1,16 @@
+{
+  "name": "Trade Co-Pilot - デイトレアシスタント",
+  "short_name": "TradeCoPilot",
+  "description": "日本株デイトレの監視・リスク管理・日誌支援ツール（売買助言ではありません）",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7f4",
+  "theme_color": "#136f63",
+  "lang": "ja",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
