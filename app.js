@@ -435,6 +435,30 @@ async function loadCandidates(options = {}) {
   }
   renderStockRows();
   await selectStock(state.selected?.symbol || state.stocks[0]?.symbol);
+  return data;
+}
+
+async function researchCandidates() {
+  const button = document.getElementById("refreshButton");
+  if (button.disabled) return;
+  const summary = document.getElementById("marketScanSummary");
+  button.disabled = true;
+  button.classList.add("is-loading");
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "調査中…";
+  summary.textContent = "市場ランキングを取得し、候補銘柄の値動き・出来高・VWAPを調査中…";
+  summary.className = "market-scan-summary";
+  try {
+    const data = await loadCandidates({ force: true });
+    const buyCount = data.stocks.filter((stock) => stock.score?.action_label === "買い候補").length;
+    const rankedCount = data.market_scan?.ranked_count || 0;
+    showToast(`市場${rankedCount}銘柄を比較し、${data.stocks.length}銘柄を表示しました（買い候補 ${buyCount}）`, "success");
+  } finally {
+    button.disabled = false;
+    button.classList.remove("is-loading");
+    button.removeAttribute("aria-busy");
+    button.textContent = "銘柄を調査";
+  }
 }
 
 async function loadWatchlist() {
@@ -1192,7 +1216,7 @@ function setupToolTabs() {
 
 setupToolTabs();
 
-document.getElementById("refreshButton").addEventListener("click", bindAsync(() => loadCandidates({ force: true })));
+document.getElementById("refreshButton").addEventListener("click", bindAsync(researchCandidates));
 document.getElementById("watchlistBrokerFilter").addEventListener("change", bindAsync(loadCandidates));
 document.getElementById("watchlistAddButton").addEventListener("click", bindAsync(addWatchlistSymbol));
 document.getElementById("watchlistAddInput").addEventListener("keydown", (event) => {

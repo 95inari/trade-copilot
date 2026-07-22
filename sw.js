@@ -1,7 +1,7 @@
 // Trade Co-Pilot PWA Service Worker
 // アプリシェルをキャッシュしてオフライン起動を可能にする。
 // 外部API（J-Quants・プロキシ）はキャッシュしない（鮮度が命のため）。
-const CACHE_NAME = "trade-copilot-v11";
+const CACHE_NAME = "trade-copilot-v12";
 const APP_SHELL = [
   "./",
   "./index.html",
