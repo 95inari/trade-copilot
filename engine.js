@@ -503,8 +503,21 @@ const jq = {
   _queue: null,
 
   // V2はダッシュボードで発行したAPIキーを使用する。キーはこの端末内だけに保存する。
-  isConfigured() {
+  hasApiKey() {
     return Boolean(store.read("jq_api_key", ""));
+  },
+
+  isPaused() {
+    return Boolean(store.read("jq_paused", false));
+  },
+
+  isConfigured() {
+    return this.hasApiKey() && !this.isPaused();
+  },
+
+  setPaused(paused) {
+    store.write("jq_paused", Boolean(paused));
+    this.lastError = null;
   },
 
   needsRelogin() {
@@ -606,9 +619,9 @@ const jq = {
   },
 
   async getListedMaster() {
+    if (!this.isConfigured()) return {};
     const cached = this.readCache("listed", JQ_MASTER_TTL_MS);
     if (cached) return cached;
-    if (!this.isConfigured()) return {};
     const rows = await this.getPaginated("/equities/master", {}, 3);
     if (!rows?.length) return {};
     const master = {};
@@ -624,9 +637,9 @@ const jq = {
   },
 
   async getTradingCalendar() {
+    if (!this.isConfigured()) return {};
     const cached = this.readCache("calendar", JQ_CALENDAR_TTL_MS);
     if (cached) return cached;
-    if (!this.isConfigured()) return {};
     const from = jstDate(-7 * 86400_000).toISOString().slice(0, 10).replaceAll("-", "");
     const to = jstDate(45 * 86400_000).toISOString().slice(0, 10).replaceAll("-", "");
     const rows = await this.getPaginated("/markets/calendar", { from, to }, 2);
@@ -645,9 +658,9 @@ const jq = {
   },
 
   async getReferenceStats(code) {
+    if (!this.isConfigured()) return null;
     const cached = this.readCache(`quotes_${code}`, JQ_QUOTES_TTL_MS);
     if (cached !== null) return cached && Object.keys(cached).length ? cached : null;
-    if (!this.isConfigured()) return null;
     const to = jstDate(-(12 * 7 + 1) * 86400_000).toISOString().slice(0, 10);
     const from = jstDate(-(16 * 7 + 1) * 86400_000).toISOString().slice(0, 10);
     const rows = await this.getPaginated(
@@ -691,11 +704,13 @@ const jq = {
       return { ok: false, message: `J-Quantsに接続できませんでした（${error || "ネットワークを確認してください"}）` };
     }
     store.write("jq_api_key", key);
+    store.remove("jq_paused");
     return { ok: true, message: "J-Quants V2 APIに接続しました" };
   },
 
   clearCredentials() {
     store.remove("jq_api_key");
+    store.remove("jq_paused");
     store.remove("jq_account");
     store.remove("jq_credentials");
     store.remove("jq_token");
@@ -703,8 +718,10 @@ const jq = {
 
   statusSummary() {
     return {
-      configured: this.isConfigured(),
-      source: this.isConfigured() ? "browser" : null,
+      configured: this.hasApiKey(),
+      active: this.isConfigured(),
+      paused: this.isPaused(),
+      source: this.hasApiKey() ? "browser" : null,
       key_label: this.configuredKeyLabel(),
       needs_relogin: this.needsRelogin(),
       ...this.budgetStatus(),
@@ -1403,6 +1420,16 @@ async function localApi(path, options = {}) {
   if (rawPath === "/api/jquants/credentials" && method === "DELETE") {
     jq.clearCredentials();
     return { message: "J-Quants連携を解除しました", status: jq.statusSummary() };
+  }
+  if (rawPath === "/api/jquants/pause" && method === "POST") {
+    if (!jq.hasApiKey()) throw { status: 400, detail: "J-QuantsのAPIキーが設定されていません" };
+    const paused = Boolean(body.paused);
+    jq.setPaused(paused);
+    clearYahooCache();
+    return {
+      message: paused ? "J-Quants連携を一時停止しました" : "J-Quants連携を再開しました",
+      status: jq.statusSummary(),
+    };
   }
 
   // --- 監視リスト ---

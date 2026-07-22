@@ -265,6 +265,7 @@ function jquantsNote(jquantsStatus) {
   if (!jquantsStatus.configured) {
     return "J-Quants: 未設定（銘柄マスタ・営業日カレンダーは近似動作）";
   }
+  if (jquantsStatus.paused) return "J-Quants: 一時停止中（API通信なし）";
   return `J-Quants: 併用中（本日 ${jquantsStatus.used}/${jquantsStatus.budget}リクエスト）`;
 }
 
@@ -274,12 +275,16 @@ function renderJquantsPanel(status) {
   const connected = document.getElementById("jquantsConnected");
 
   if (status.configured) {
-    badge.textContent = "接続済み";
-    badge.className = "mini-status is-active";
+    badge.textContent = status.paused ? "停止中" : "接続済み";
+    badge.className = status.paused ? "mini-status is-blocked" : "mini-status is-active";
     setup.hidden = true;
     connected.hidden = false;
+    const pauseButton = document.getElementById("jquantsPauseButton");
+    pauseButton.textContent = status.paused ? "連携を再開" : "連携を一時停止";
+    pauseButton.dataset.paused = String(Boolean(status.paused));
     const lines = [
       `<p>V2 APIキー: <strong>${escapeHtml(status.key_label || "設定済み")}</strong></p>`,
+      `<p>連携状態: <strong>${status.paused ? "一時停止中（API通信なし）" : "稼働中"}</strong></p>`,
       `<p>本日のアプリ内リクエスト: <strong>${escapeHtml(status.used)} / ${escapeHtml(status.budget)}</strong>（上限で自動停止）</p>`,
       `<p>銘柄マスタ: ${status.master_cached ? "取得済み" : "未取得"} / 営業日カレンダー: ${status.calendar_cached ? "取得済み" : "未取得"}</p>`,
       "<p>APIキーはこの端末内だけに保存され、自分専用の中継には保存されません。</p>",
@@ -328,6 +333,18 @@ async function disconnectJquants() {
   const result = await api("/api/jquants/credentials", { method: "DELETE" });
   showToast(result.message || "解除しました", "success");
   renderJquantsPanel(result.status);
+}
+
+async function toggleJquantsPause() {
+  const button = document.getElementById("jquantsPauseButton");
+  const currentlyPaused = button.dataset.paused === "true";
+  const result = await api("/api/jquants/pause", {
+    method: "POST",
+    body: JSON.stringify({ paused: !currentlyPaused }),
+  });
+  showToast(result.message, "success");
+  renderJquantsPanel(result.status);
+  await loadCandidates({ force: true });
 }
 
 function renderDataSource(data) {
@@ -1189,6 +1206,7 @@ document.getElementById("journalForm").addEventListener("submit", bindAsync(subm
 document.getElementById("reviewButton").addEventListener("click", bindAsync(generateReview));
 document.getElementById("jquantsForm").addEventListener("submit", bindAsync(submitJquantsCredentials));
 document.getElementById("jquantsRefreshButton").addEventListener("click", bindAsync(loadJquantsStatus));
+document.getElementById("jquantsPauseButton").addEventListener("click", bindAsync(toggleJquantsPause));
 document.getElementById("jquantsDisconnectButton").addEventListener("click", bindAsync(disconnectJquants));
 document.getElementById("paperDailyLoss").addEventListener("input", () => updateStopLine(state.todayPnl));
 window.addEventListener("resize", () => {
