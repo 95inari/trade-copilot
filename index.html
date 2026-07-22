@@ -63,7 +63,7 @@
           <div>
             <p class="eyebrow">Step 1</p>
             <h2>候補を選ぶ</h2>
-            <p class="section-description">条件に合う銘柄を比較します</p>
+            <p class="section-description">市場全体から動きの強い銘柄を自動発掘します</p>
             <p id="watchlistUpdated" class="muted small-note"></p>
           </div>
           <div class="watchlist-actions">
@@ -77,12 +77,14 @@
             <button id="refreshButton" class="icon-button" aria-label="候補銘柄を更新" title="更新" type="button">↻</button>
           </div>
         </div>
+        <p id="marketScanSummary" class="market-scan-summary">市場全体をスキャン中…</p>
+        <p class="watchlist-label">固定監視（自動発掘とは別に、常に確認する銘柄）</p>
         <div class="watchlist-manage">
           <input
             id="watchlistAddInput"
             type="text"
             maxlength="4"
-            placeholder="監視銘柄を追加（例: 7203）"
+            placeholder="固定監視へ追加（例: 7203）"
             autocomplete="off"
           />
           <button id="watchlistAddButton" class="secondary-button" type="button">追加</button>

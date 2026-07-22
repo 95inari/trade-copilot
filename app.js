@@ -342,6 +342,15 @@ function renderDataSource(data) {
   updated.textContent = [timeText, sourceText && `データ: ${sourceText}`].filter(Boolean).join(" / ");
 
   const note = document.getElementById("dataSourceNote");
+  const scanSummary = document.getElementById("marketScanSummary");
+  const scan = data.market_scan;
+  if (scan?.enabled) {
+    scanSummary.textContent = `市場ランキング${scan.sources.length}種・${scan.ranked_count}銘柄から ${scan.added_count}銘柄を自動発掘 ＋ 固定監視`;
+    scanSummary.className = "market-scan-summary is-active";
+  } else {
+    scanSummary.textContent = "市場全体スキャンを取得できないため、固定監視だけを継続しています";
+    scanSummary.className = "market-scan-summary is-warning";
+  }
   if (data.data_source === "yahoo") {
     const failures = (data.data_errors || []).length;
     const prevSession = (data.stocks || []).length && data.stocks.every((s) => s.is_previous_session);
@@ -385,9 +394,12 @@ function renderDataSource(data) {
   }
 }
 
-async function loadCandidates() {
+async function loadCandidates(options = {}) {
   state.brokerFilter = document.getElementById("watchlistBrokerFilter").value;
-  const query = state.brokerFilter === "all" ? "" : `?broker_mode=${encodeURIComponent(state.brokerFilter)}`;
+  const params = new URLSearchParams();
+  if (state.brokerFilter !== "all") params.set("broker_mode", state.brokerFilter);
+  if (options?.force === true) params.set("refresh", "1");
+  const query = params.size ? `?${params}` : "";
   const data = await api(`/api/stocks/candidates${query}`);
   state.stocks = data.stocks;
   renderDataSource(data);
@@ -459,11 +471,14 @@ function renderStockRows() {
       const staleMark = stock.is_stale
         ? `<span class="stale-mark" title="取得失敗のため前回値を表示中">⚠</span> `
         : "";
+      const originTag = stock.auto_discovered
+        ? '<span class="origin-tag is-auto">自動発掘</span>'
+        : '<span class="origin-tag">固定監視</span>';
       return `
         <tr class="stock-row${active}" data-symbol="${escapeHtml(stock.symbol)}">
           <td>
             <strong>${staleMark}${escapeHtml(stock.name)}</strong>
-            <span class="stock-code">${escapeHtml(stock.symbol)} ${escapeHtml(stock.market)}</span>
+            <span class="stock-code">${escapeHtml(stock.symbol)} ${escapeHtml(stock.market)} ${originTag}</span>
             <span class="broker-tags">${brokerTags}</span>
           </td>
           <td><span class="small-badge rank-${escapeHtml(score.rank_label)}">${escapeHtml(score.action_label)}</span></td>
@@ -1146,7 +1161,7 @@ function setupToolTabs() {
 
 setupToolTabs();
 
-document.getElementById("refreshButton").addEventListener("click", bindAsync(loadCandidates));
+document.getElementById("refreshButton").addEventListener("click", bindAsync(() => loadCandidates({ force: true })));
 document.getElementById("watchlistBrokerFilter").addEventListener("change", bindAsync(loadCandidates));
 document.getElementById("watchlistAddButton").addEventListener("click", bindAsync(addWatchlistSymbol));
 document.getElementById("watchlistAddInput").addEventListener("keydown", (event) => {

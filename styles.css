@@ -598,6 +598,25 @@ tr.stock-row.active {
   font-size: 11px;
 }
 
+.origin-tag {
+  display: inline-flex;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  vertical-align: 1px;
+}
+
+.origin-tag.is-auto {
+  border-color: rgba(8, 122, 101, 0.22);
+  color: var(--green-dark);
+  background: var(--green-light);
+}
+
 .broker-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1065,6 +1084,35 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   padding: 14px 16px 0;
+}
+
+.market-scan-summary {
+  margin: 14px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink-soft);
+  background: var(--surface-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.market-scan-summary.is-active {
+  border-color: rgba(8, 122, 101, 0.22);
+  color: var(--green-dark);
+  background: var(--green-light);
+}
+
+.market-scan-summary.is-warning {
+  color: var(--amber);
+  background: var(--amber-light);
+}
+
+.watchlist-label {
+  margin: 14px 16px 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .watchlist-chips {

@@ -203,12 +203,14 @@ function proxyUrlFor(target) {
 // ---------------------------------------------------------------------------
 
 const YAHOO_TTL_MS = 90_000;
+const MARKET_SCAN_TTL_MS = 90_000;
 const FAILURE_RETRY_MS = 30_000;
 const RATE_LIMIT_COOLDOWN_MS = 180_000;
 const FETCH_SPACING_MS = 500;
 const STALE_CARRY_MAX_MS = 600_000;
 
 const yahooCache = { fetchedAt: 0, attemptedAt: 0, codes: null, stocks: [], errors: [] };
+const marketScanCache = { fetchedAt: 0, value: null };
 let yahooRateLimitedUntil = 0;
 let yahooInflight = null;
 
@@ -239,6 +241,29 @@ async function fetchChartViaProxy(code) {
   const result = payload?.chart?.result?.[0];
   if (!result) throw new Error(`${code}.T: ${payload?.chart?.error?.description || "no result"}`);
   return result;
+}
+
+async function getMarketScan() {
+  if (Date.now() - marketScanCache.fetchedAt < MARKET_SCAN_TTL_MS && marketScanCache.value) {
+    return marketScanCache.value;
+  }
+  const url = `${readProxyUrl().replace(/\/$/, "")}/?ranking=scan`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`市場全体スキャン: HTTP ${response.status}`);
+    const payload = await response.json();
+    const value = {
+      candidates: Array.isArray(payload.candidates) ? payload.candidates : [],
+      ranked_count: Number(payload.ranked_count || 0),
+      sources: Array.isArray(payload.sources) ? payload.sources : [],
+      errors: Array.isArray(payload.errors) ? payload.errors : [],
+      updated_at: payload.updated_at || null,
+    };
+    Object.assign(marketScanCache, { fetchedAt: Date.now(), value });
+    return value;
+  } catch (error) {
+    return { candidates: [], ranked_count: 0, sources: [], errors: [error.message], updated_at: null };
+  }
 }
 
 function cleanCandles(chart) {
@@ -356,7 +381,7 @@ async function fetchYahooStock(code) {
 
 function applyRankingHits(stocks) {
   if (!stocks.length) return;
-  for (const stock of stocks) stock.ranking_hits = [];
+  for (const stock of stocks) stock.ranking_hits = [...(stock.market_scan_hits || [])];
   const top = Math.max(3, Math.floor(stocks.length / 4));
   for (const [key, label] of [
     ["change_rate", "値上がり率上位（リスト内）"],
@@ -450,6 +475,7 @@ async function getYahooUniverse(codes) {
 
 function clearYahooCache() {
   Object.assign(yahooCache, { fetchedAt: 0, attemptedAt: 0, codes: null, stocks: [], errors: [] });
+  Object.assign(marketScanCache, { fetchedAt: 0, value: null });
 }
 
 // ---------------------------------------------------------------------------
@@ -708,19 +734,53 @@ async function enrichWithJquants(stocks) {
 
 async function getMarketStocks() {
   if (useRealData()) {
-    const { stocks, errors, fetchedAt } = await getYahooUniverse(readWatchlist());
+    const pinned = readWatchlist();
+    const scan = await getMarketScan();
+    const scannedCodes = scan.candidates.map((candidate) => String(candidate.symbol || ""));
+    const codes = [...pinned, ...scannedCodes.filter((code) => !pinned.includes(code))].slice(0, 30);
+    const { stocks, errors, fetchedAt } = await getYahooUniverse(codes);
+    const scanByCode = new Map(scan.candidates.map((candidate) => [String(candidate.symbol), candidate]));
+    for (const stock of stocks) {
+      const discovered = scanByCode.get(stock.symbol);
+      stock.auto_discovered = Boolean(discovered && !pinned.includes(stock.symbol));
+      stock.market_scan_hits = discovered?.market_scan_hits || [];
+      if (discovered?.name) stock.name = String(discovered.name).replace(/^\(株\)|\(株\)$/g, "").trim();
+      if (discovered?.market) stock.market = String(discovered.market);
+    }
+    applyRankingHits(stocks);
     if (stocks.length) {
       await enrichWithJquants(stocks);
       return {
         stocks,
         meta: {
           data_source: "yahoo",
-          data_errors: errors,
+          data_errors: [...scan.errors, ...errors],
           fetched_at: fetchedAt ? new Date(fetchedAt + 9 * 3600_000).toISOString().replace("Z", "+09:00") : null,
+          market_scan: {
+            enabled: scan.candidates.length > 0,
+            ranked_count: scan.ranked_count,
+            added_count: stocks.filter((stock) => stock.auto_discovered).length,
+            sources: scan.sources,
+            errors: scan.errors,
+          },
         },
       };
     }
-    return { stocks: [], meta: { data_source: "unavailable", data_errors: errors, fetched_at: null } };
+    return {
+      stocks: [],
+      meta: {
+        data_source: "unavailable",
+        data_errors: [...scan.errors, ...errors],
+        fetched_at: null,
+        market_scan: {
+          enabled: false,
+          ranked_count: scan.ranked_count,
+          added_count: 0,
+          sources: scan.sources,
+          errors: scan.errors,
+        },
+      },
+    };
   }
   return { stocks: [], meta: { data_source: "unconfigured", data_errors: [], fetched_at: null } };
 }
@@ -1377,6 +1437,7 @@ async function localApi(path, options = {}) {
     if (brokerMode && brokerMode !== "all" && !BROKER_PRESETS[brokerMode]) {
       throw { status: 400, detail: "Unsupported broker mode" };
     }
+    if (query.get("refresh") === "1") clearYahooCache();
     const { stocks, meta } = await getMarketStocks();
     const payloads = stocks
       .filter((s) => isSupportedByBroker(s, brokerMode))
