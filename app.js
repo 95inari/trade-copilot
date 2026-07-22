@@ -377,10 +377,14 @@ function renderDataSource(data) {
   if (data.data_source === "yahoo") {
     const failures = (data.data_errors || []).length;
     const prevSession = (data.stocks || []).length && data.stocks.every((s) => s.is_previous_session);
+    const paypayNote = data.broker_support?.paypay_verified
+      ? " / PayPay取扱: 公式一覧で確認済み"
+      : " / PayPay取扱: 公式一覧を確認できないため表示なし";
     note.textContent =
-      "判定は市場ランキング・値動き・出来高・VWAPを使用。掲示板・ニュースは未取得のため判定対象外。証券会社の取扱可否は目安。遅延データの可能性あり。" +
+      "判定は市場ランキング・値動き・出来高・VWAPを使用。掲示板・ニュースは未取得のため判定対象外。PayPay以外の証券会社取扱は目安。遅延データの可能性あり。" +
       (prevSession ? " / 前営業日データを表示中（寄り前・休日）" : "") +
       (failures ? ` / 取得失敗 ${failures}銘柄` : "") +
+      paypayNote +
       ` / ${jquantsNote(data.jquants)}`;
     note.title = (data.data_errors || []).join("\n");
   } else if (data.data_source === "unavailable") {

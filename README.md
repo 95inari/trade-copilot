@@ -25,6 +25,7 @@
   2. Workers & Pages → Create Worker → `proxy/cloudflare-worker.js` の内容を貼り付けて Deploy
   3. 表示されたURL（`https://xxx.workers.dev`）をアプリの「データ設定」に入力
 - **J-QuantsのV2 APIキーは端末内だけに保存**され、接続時は自分専用の中継を経由してJ-Quants公式APIへ送信されます。中継には保存しません
+- **PayPayの取扱可否**: [PayPay証券の公式銘柄一覧](https://www.paypay-sec.co.jp/stock/list/)を参照し、PayPay証券アプリとPayPayミニアプリを区別して表示します。公式一覧を取得できないときは誤表示防止のためPayPayタグを表示しません
 
 ## 開発
 

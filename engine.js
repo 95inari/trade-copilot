@@ -137,11 +137,13 @@ function uuid() {
 
 const BROKER_PRESETS = {
   sbi_s_stock: { label: "SBI証券 S株", quantity_step: 1, allow_fractional: false, min_order_amount: 0, description: "単元未満株を1株単位で仮想購入します。" },
-  paypay_amount: { label: "PayPay証券", quantity_step: 0.0001, allow_fractional: true, min_order_amount: 100, description: "金額指定を想定し、1株未満の端数株も仮想購入します。" },
+  paypay_amount: { label: "PayPay証券アプリ", quantity_step: 0.0001, allow_fractional: true, min_order_amount: 100, description: "PayPay証券アプリの公式取扱銘柄だけを、金額指定・端数株で仮想購入します。" },
+  paypay_mini: { label: "PayPayミニアプリ", quantity_step: 0.0001, allow_fractional: true, min_order_amount: 100, description: "PayPay証券ミニアプリの公式取扱銘柄だけを、金額指定・端数株で仮想購入します。" },
   rakuten_kabumini: { label: "楽天証券 かぶミニ", quantity_step: 1, allow_fractional: false, min_order_amount: 0, description: "単元未満株を1株単位で仮想購入します（リアルタイム取引想定）。" },
   rakuten_amount: { label: "楽天証券 金額指定", quantity_step: 0.0001, allow_fractional: true, min_order_amount: 1000, description: "金額指定の単元未満株注文を想定し、端数株も仮想購入します。" },
 };
 const BROKER_KEYS = Object.keys(BROKER_PRESETS);
+const DEFAULT_SUPPORTED_BROKERS = BROKER_KEYS.filter((key) => !key.startsWith("paypay_"));
 
 const DEFAULT_WATCHLIST = ["3914", "6526", "2160", "5253", "7203", "6758", "9984", "8306", "6920", "8035", "7974", "9432"];
 
@@ -257,12 +259,20 @@ async function getMarketScan() {
       ranked_count: Number(payload.ranked_count || 0),
       sources: Array.isArray(payload.sources) ? payload.sources : [],
       errors: Array.isArray(payload.errors) ? payload.errors : [],
+      broker_support: payload.broker_support || { verified: false, paypay_amount: [], paypay_mini: [] },
       updated_at: payload.updated_at || null,
     };
     Object.assign(marketScanCache, { fetchedAt: Date.now(), value });
     return value;
   } catch (error) {
-    return { candidates: [], ranked_count: 0, sources: [], errors: [error.message], updated_at: null };
+    return {
+      candidates: [],
+      ranked_count: 0,
+      sources: [],
+      errors: [error.message],
+      broker_support: { verified: false, paypay_amount: [], paypay_mini: [], error: error.message },
+      updated_at: null,
+    };
   }
 }
 
@@ -362,7 +372,7 @@ async function fetchYahooStock(code) {
     volume_change_rate: volumeChangeRate,
     session_date: sessionDate,
     is_previous_session: isPreviousSession,
-    supported_brokers: [...BROKER_KEYS],
+    supported_brokers: [...DEFAULT_SUPPORTED_BROKERS],
     bbs_rank: null,
     ranking_hits: [],
     news_count: null,
@@ -757,11 +767,15 @@ async function getMarketStocks() {
     const codes = [...pinned, ...scannedCodes.filter((code) => !pinned.includes(code))].slice(0, 30);
     const { stocks, errors, fetchedAt } = await getYahooUniverse(codes);
     const scanByCode = new Map(scan.candidates.map((candidate) => [String(candidate.symbol), candidate]));
+    const paypayAppSymbols = new Set(scan.broker_support?.paypay_amount || []);
+    const paypayMiniSymbols = new Set(scan.broker_support?.paypay_mini || []);
     for (const stock of stocks) {
       const discovered = scanByCode.get(stock.symbol);
       stock.auto_discovered = Boolean(discovered && !pinned.includes(stock.symbol));
       stock.market_scan_hits = discovered?.market_scan_hits || [];
       stock.market_scan_score = Number(discovered?.scan_score || 0);
+      if (paypayAppSymbols.has(stock.symbol)) stock.supported_brokers.push("paypay_amount");
+      if (paypayMiniSymbols.has(stock.symbol)) stock.supported_brokers.push("paypay_mini");
       if (discovered?.name) stock.name = String(discovered.name).replace(/^\(株\)|\(株\)$/g, "").trim();
       if (discovered?.market) stock.market = String(discovered.market);
     }
@@ -781,6 +795,12 @@ async function getMarketStocks() {
             sources: scan.sources,
             errors: scan.errors,
           },
+          broker_support: {
+            paypay_verified: Boolean(scan.broker_support?.verified),
+            paypay_source: scan.broker_support?.source || null,
+            paypay_fetched_at: scan.broker_support?.fetched_at || null,
+            paypay_error: scan.broker_support?.error || null,
+          },
         },
       };
     }
@@ -796,6 +816,12 @@ async function getMarketStocks() {
           added_count: 0,
           sources: scan.sources,
           errors: scan.errors,
+        },
+        broker_support: {
+          paypay_verified: Boolean(scan.broker_support?.verified),
+          paypay_source: scan.broker_support?.source || null,
+          paypay_fetched_at: scan.broker_support?.fetched_at || null,
+          paypay_error: scan.broker_support?.error || null,
         },
       },
     };

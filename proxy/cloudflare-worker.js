@@ -20,6 +20,9 @@ const RANKING_SOURCES = [
   { slug: "tradingValueHigh", label: "売買代金上位（市場全体）" },
 ];
 const MARKET_SCAN_LIMIT = 18;
+const PAYPAY_STOCK_LIST_URL = "https://www.paypay-sec.co.jp/stock/list/data-stock.json";
+const PAYPAY_SUPPORT_TTL_MS = 6 * 60 * 60 * 1000;
+let paypaySupportCache = { fetchedAt: 0, value: null };
 
 function json(data, status, headers) {
   return new Response(JSON.stringify(data), {
@@ -53,8 +56,50 @@ async function fetchRanking(source) {
   return { source, rows };
 }
 
+async function getPaypayBrokerSupport() {
+  if (paypaySupportCache.value && Date.now() - paypaySupportCache.fetchedAt < PAYPAY_SUPPORT_TTL_MS) {
+    return paypaySupportCache.value;
+  }
+  const response = await fetch(PAYPAY_STOCK_LIST_URL, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    },
+  });
+  if (!response.ok) throw new Error(`PayPay公式一覧: HTTP ${response.status}`);
+  const rows = await response.json();
+  if (!Array.isArray(rows)) throw new Error("PayPay公式一覧: データ形式が不正です");
+  const paypayApp = [];
+  const paypayMini = [];
+  for (const row of rows) {
+    const code = String(row?.codenumber || "");
+    if (!/^[0-9A-Z]{4}$/.test(code)) continue;
+    if (row.app_trade === "on") paypayApp.push(code);
+    if (row.app_mini === "on") paypayMini.push(code);
+  }
+  if (!paypayApp.length || !paypayMini.length) throw new Error("PayPay公式一覧: 取扱銘柄が空です");
+  const value = {
+    verified: true,
+    paypay_amount: paypayApp,
+    paypay_mini: paypayMini,
+    source: PAYPAY_STOCK_LIST_URL,
+    fetched_at: new Date().toISOString(),
+  };
+  paypaySupportCache = { fetchedAt: Date.now(), value };
+  return value;
+}
+
 async function scanMarket(cors) {
-  const settled = await Promise.allSettled(RANKING_SOURCES.map(fetchRanking));
+  const [settled, paypaySupport] = await Promise.all([
+    Promise.allSettled(RANKING_SOURCES.map(fetchRanking)),
+    getPaypayBrokerSupport().catch((error) => ({
+      verified: false,
+      paypay_amount: [],
+      paypay_mini: [],
+      source: PAYPAY_STOCK_LIST_URL,
+      fetched_at: null,
+      error: String(error?.message || "PayPay公式一覧を取得できませんでした"),
+    })),
+  ]);
   const successful = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
   const errors = settled
     .filter((result) => result.status === "rejected")
@@ -97,6 +142,7 @@ async function scanMarket(cors) {
     ranked_count: byCode.size,
     sources: successful.map(({ source }) => source.label),
     candidates,
+    broker_support: paypaySupport,
     errors,
   }, 200, cors);
 }
