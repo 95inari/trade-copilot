@@ -761,6 +761,7 @@ async function getMarketStocks() {
       const discovered = scanByCode.get(stock.symbol);
       stock.auto_discovered = Boolean(discovered && !pinned.includes(stock.symbol));
       stock.market_scan_hits = discovered?.market_scan_hits || [];
+      stock.market_scan_score = Number(discovered?.scan_score || 0);
       if (discovered?.name) stock.name = String(discovered.name).replace(/^\(株\)|\(株\)$/g, "").trim();
       if (discovered?.market) stock.market = String(discovered.market);
     }
@@ -834,17 +835,34 @@ async function marketPhase() {
 // スコアリング・チェックリスト（main.py の移植）
 // ---------------------------------------------------------------------------
 
+function hasEntryShape(stock) {
+  return Boolean(stock.pullback || stock.breakout);
+}
+
+function hasBlockingEntryRisk(stock) {
+  return Boolean(
+    stock.change_rate >= 20
+    || stock.thin_order_book
+    || stock.event_risk
+    || stock.upper_wick_count >= 3
+  );
+}
+
 function scoreStock(stock) {
   const valueScore = Math.min(20, Math.max(0, (stock.change_rate / 15) * 20));
   const volumeChangeScore = Math.min(20, Math.max(0, (stock.volume_change_rate / 400) * 20));
   const volumeScore = Math.min(15, Math.max(0, (stock.volume / 5_000_000) * 15));
-  const bbsRank = stock.bbs_rank;
-  const bbsScore = bbsRank == null ? 4 : bbsRank <= 10 ? 10 : bbsRank <= 30 ? 7 : 4;
-  const newsScore = Math.min(15, (stock.news_count || 0) * 6);
+  const localRankingHits = new Set(stock.ranking_hits || []).size;
+  const marketAttentionScore = Number(stock.market_scan_score || 0) > 0
+    ? Math.min(15, (Number(stock.market_scan_score) / 100) * 15)
+    : Math.min(9, localRankingHits * 3);
   let chartScore = 0;
-  if (stock.above_vwap) chartScore += 4;
-  if (stock.breakout) chartScore += 3;
-  if (stock.pullback) chartScore += 3;
+  if (stock.above_vwap) chartScore += 5;
+  if (stock.breakout) chartScore += 7;
+  if (stock.pullback) chartScore += 9;
+  if (!stock.volume_fading) chartScore += 3;
+  if (stock.upper_wick_count === 0) chartScore += 3;
+  chartScore = Math.min(20, chartScore);
 
   let riskPenalty = 0;
   const warnings = [];
@@ -859,23 +877,23 @@ function scoreStock(stock) {
     "値上がり率": roundHalfEven(valueScore),
     "出来高増加率": roundHalfEven(volumeChangeScore),
     "出来高": roundHalfEven(volumeScore),
-    "掲示板投稿数": bbsScore,
-    "ニュース材料": newsScore,
+    "市場注目度": roundHalfEven(marketAttentionScore),
     "チャート形状": chartScore,
     "リスク": Math.max(0, 10 - riskPenalty),
   };
   const totalScore = Math.min(100, Object.values(breakdown).reduce((a, b) => a + b, 0));
 
   let rankLabel, actionLabel;
-  if (totalScore >= 85) { rankLabel = "S"; actionLabel = "要監視"; }
-  else if (totalScore >= 70) { rankLabel = "A"; actionLabel = "押し目待ち"; }
-  else if (totalScore >= 55) { rankLabel = "B"; actionLabel = "条件確認"; }
-  else if (totalScore >= 40) { rankLabel = "C"; actionLabel = "危険"; }
+  const buyCandidate = totalScore >= 55 && stock.above_vwap && hasEntryShape(stock) && !hasBlockingEntryRisk(stock);
+  if (buyCandidate) { rankLabel = totalScore >= 80 ? "S" : "A"; actionLabel = "買い候補"; }
+  else if (totalScore >= 50 && stock.above_vwap && !hasBlockingEntryRisk(stock)) { rankLabel = "B"; actionLabel = "条件確認"; }
+  else if (totalScore >= 40 && (!stock.above_vwap || hasBlockingEntryRisk(stock))) { rankLabel = "C"; actionLabel = "危険"; }
   else { rankLabel = "D"; actionLabel = "見送り"; }
 
   const reasons = [];
   if (stock.change_rate >= 5) reasons.push("値上がり率ランキング上位");
   if (stock.volume_change_rate >= 200) reasons.push("出来高増加率が高い");
+  if (marketAttentionScore >= 9) reasons.push("市場ランキングで注目度が高い");
   if ((stock.news_count || 0) > 0) reasons.push("関連ニュースあり");
   if (stock.above_vwap) reasons.push("VWAP上で推移");
   if (stock.pullback) reasons.push("一度押し目を作っている");
@@ -885,11 +903,11 @@ function scoreStock(stock) {
 }
 
 function buildAssistComment(stock, score) {
-  if (["S", "A"].includes(score.rank_label) && stock.pullback) {
-    return "条件は良好。今すぐ成行ではなく、VWAP付近の押し目継続と反発確認を優先する監視候補。";
+  if (score.action_label === "買い候補" && stock.pullback) {
+    return "買い条件に一致。今すぐ成行ではなく、VWAP付近の押し目継続と反発を確認し、損切り位置を決めてから判断。";
   }
-  if (["S", "A"].includes(score.rank_label)) {
-    return "短期資金は集まっている。高値付近での飛び乗りを避け、損切り位置を明確にできる場面だけ監視。";
+  if (score.action_label === "買い候補") {
+    return "買い条件に一致。短期資金は集まっているが、高値での飛び乗りを避け、損切り位置を明確にできる場面だけ判断。";
   }
   if (score.rank_label === "B") return "動きはあるが条件確認が必要。VWAP、出来高、損切り幅が整わない場合は見送り。";
   return "過熱または条件不足。無理に入らず、材料確認と出来高の再増加を待つ。";
@@ -1095,9 +1113,10 @@ function isSupportedByBroker(stock, brokerMode) {
 
 function isPaperAutoCandidate(stock, brokerMode) {
   const score = scoreStock(stock);
-  const hasShape = stock.pullback || stock.breakout;
-  const blockingRisk = stock.volume_fading || stock.thin_order_book || stock.event_risk || stock.upper_wick_count >= 3;
-  return isSupportedByBroker(stock, brokerMode) && score.total_score >= 65 && stock.above_vwap && hasShape && !blockingRisk;
+  return isSupportedByBroker(stock, brokerMode)
+    && score.action_label === "買い候補"
+    && !stock.volume_fading
+    && !hasBlockingEntryRisk(stock);
 }
 
 function buildPaperTrade(stock, quantity, preset) {
@@ -1469,7 +1488,11 @@ async function localApi(path, options = {}) {
     const payloads = stocks
       .filter((s) => isSupportedByBroker(s, brokerMode))
       .map(stockPayload)
-      .sort((a, b) => b.score.total_score - a.score.total_score);
+      .sort((a, b) => {
+        const priority = { "買い候補": 0, "条件確認": 1, "危険": 2, "見送り": 3 };
+        return priority[a.score.action_label] - priority[b.score.action_label]
+          || b.score.total_score - a.score.total_score;
+      });
     return {
       updated_at: nowJstIso(),
       ...meta,

@@ -8,6 +8,7 @@ const state = {
   brokerFilter: "all",
   notificationsEnabled: false,
   marketHoliday: false,
+  marketPhase: null,
   ruleAlertTimer: null,
   todayPnl: null,
 };
@@ -256,6 +257,7 @@ function renderMarketPhase(data) {
   const label = document.getElementById("marketPhase");
   if (!data.market_phase_label) return;
   state.marketHoliday = data.market_phase === "closed" && data.market_phase_label === "休場日";
+  state.marketPhase = data.market_phase;
   label.textContent = data.market_phase_label;
   cell.classList.toggle("is-morning", data.market_phase === "morning");
 }
@@ -361,8 +363,12 @@ function renderDataSource(data) {
   const note = document.getElementById("dataSourceNote");
   const scanSummary = document.getElementById("marketScanSummary");
   const scan = data.market_scan;
+  const buyCandidateCount = (data.stocks || []).filter((stock) => stock.score?.action_label === "買い候補").length;
+  const buySummary = state.marketPhase === "morning"
+    ? `買い候補 ${buyCandidateCount}銘柄`
+    : `次の朝の買い候補 ${buyCandidateCount}銘柄`;
   if (scan?.enabled) {
-    scanSummary.textContent = `市場ランキング${scan.sources.length}種・${scan.ranked_count}銘柄から ${scan.added_count}銘柄を自動発掘 ＋ 固定監視`;
+    scanSummary.textContent = `市場ランキング${scan.sources.length}種・${scan.ranked_count}銘柄から ${scan.added_count}銘柄を自動発掘 ＋ 固定監視 / ${buySummary}`;
     scanSummary.className = "market-scan-summary is-active";
   } else {
     scanSummary.textContent = "市場全体スキャンを取得できないため、固定監視だけを継続しています";
@@ -372,7 +378,7 @@ function renderDataSource(data) {
     const failures = (data.data_errors || []).length;
     const prevSession = (data.stocks || []).length && data.stocks.every((s) => s.is_previous_session);
     note.textContent =
-      "掲示板・ニュースは未取得のためスコア加点なし。証券会社の取扱可否は目安。遅延データの可能性あり。" +
+      "判定は市場ランキング・値動き・出来高・VWAPを使用。掲示板・ニュースは未取得のため判定対象外。証券会社の取扱可否は目安。遅延データの可能性あり。" +
       (prevSession ? " / 前営業日データを表示中（寄り前・休日）" : "") +
       (failures ? ` / 取得失敗 ${failures}銘柄` : "") +
       ` / ${jquantsNote(data.jquants)}`;
@@ -491,6 +497,9 @@ function renderStockRows() {
       const originTag = stock.auto_discovered
         ? '<span class="origin-tag is-auto">自動発掘</span>'
         : '<span class="origin-tag">固定監視</span>';
+      const actionLabel = score.action_label === "買い候補" && state.marketPhase !== "morning"
+        ? "朝の買い候補"
+        : score.action_label;
       return `
         <tr class="stock-row${active}" data-symbol="${escapeHtml(stock.symbol)}">
           <td>
@@ -498,7 +507,7 @@ function renderStockRows() {
             <span class="stock-code">${escapeHtml(stock.symbol)} ${escapeHtml(stock.market)} ${originTag}</span>
             <span class="broker-tags">${brokerTags}</span>
           </td>
-          <td><span class="small-badge rank-${escapeHtml(score.rank_label)}">${escapeHtml(score.action_label)}</span></td>
+          <td><span class="small-badge rank-${escapeHtml(score.rank_label)}">${escapeHtml(actionLabel)}</span></td>
           <td>${escapeHtml(score.total_score)}</td>
           <td>${escapeHtml(stock.change_rate)}%</td>
           <td>${escapeHtml(stock.volume_change_rate)}%</td>
@@ -567,7 +576,9 @@ function renderSelectedStock(stock) {
   rankLabel.textContent = score.rank_label;
   rankLabel.className = `rank-badge rank-${score.rank_label}`;
   document.getElementById("totalScore").textContent = score.total_score;
-  document.getElementById("assistComment").textContent = stock.assist_comment;
+  document.getElementById("assistComment").textContent = score.action_label === "買い候補" && state.marketPhase !== "morning"
+    ? `次の朝の買い候補。今日は新規で追わず、次の朝にVWAP・出来高・損切り位置をもう一度確認。${stock.assist_comment}`
+    : stock.assist_comment;
 
   document.getElementById("entryPrice").value = stock.price;
   document.getElementById("stopPrice").value = Math.max(1, Math.round(stock.vwap));
@@ -601,9 +612,8 @@ function renderScoreBreakdown(breakdown) {
     "値上がり率": 20,
     "出来高増加率": 20,
     "出来高": 15,
-    "掲示板投稿数": 10,
-    "ニュース材料": 15,
-    "チャート形状": 10,
+    "市場注目度": 15,
+    "チャート形状": 20,
     "リスク": 10,
   };
   const root = document.getElementById("scoreBreakdown");
